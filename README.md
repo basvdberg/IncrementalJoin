@@ -4,7 +4,8 @@ This library implements the incremental join function that helps you to join 2 v
 - Performance: This is achieved by selecting the smallest scope possible during joining. 
 - Efficiency: Users do not have to worry about the complexity of incremental join. 
 - Maintainability: The complexity of incremental join is removed from your code and thus it makes your code more readable and easier to maintain.  
-- Consistency: The outcome of the join is not dependent on the size of the join interval (e.g. daily, monthly, yearly).
+- Code quality: Prevent user mistakes in the complex joining conditions of incremental join by externalizing this code. 
+- Consistency: The outcome of the join is not dependent on the size of the join interval (e.g. daily, monthly, yearly). This is often a requirement when you want to use the data in machine learning and you don't want to be troubled by changing historic data.  
 
 For a detailed description of how this join works, please continue reading. 
 
