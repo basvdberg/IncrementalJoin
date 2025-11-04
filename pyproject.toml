@@ -1,14 +1,3 @@
-[tool.poetry]
-name = "my-python-library"
-version = "0.1.0"
-description = "A brief description of your library."
-authors = ["Your Name <youremail@example.com>"]
-license = "MIT"
-readme = "README.md"
-homepage = "https://github.com/yourusername/my-python-library"
-repository = "https://github.com/yourusername/my-python-library"
-keywords = ["python", "library", "example"]
-
 [build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"

@@ -1,22 +1,32 @@
+# Dependencies 
+- Python
+- PySpark
+
 # Summary
 
-This library implements the incremental join function that helps you to join 2 very large tables that are incrementally refreshed. Benefits of using this library:
-- Performance: This is achieved by selecting the smallest scope possible during joining. 
-- Efficiency: Users do not have to worry about the complexity of incremental join. 
-- Maintainability: The complexity of incremental join is removed from your code and thus it makes your code more readable and easier to maintain.  
-- Code quality: Prevent user mistakes in the complex joining conditions of incremental join by externalizing this code. 
-- Consistency: The outcome of the join is not dependent on the size of the join interval (e.g. daily, monthly, yearly). This is often a requirement when you want to use the data in machine learning and you don't want to be troubled by changing historic data.  
+This library implements an incremental join function to join 2 (usually large) incrementally refreshed tables, taking into account the refresh timestamp of each table and the fact that data might arrive late. 
 
 For a detailed description of how this join works, please continue reading. 
 
+- [Dependencies](#dependencies)
 - [Summary](#summary)
 - [Incremental refresh](#incremental-refresh)
-- [Example data](#example-data)
-- [Joining incrementally refreshed tables](#joining-incrementally-refreshed-tables)
+- [Incremental join](#incremental-join)
+- [Example](#example)
+  - [A](#a)
+  - [B](#b)
+  - [Arrival time of A versus B](#arrival-time-of-a-versus-b)
+    - [Observations:](#observations)
+  - [Sliding join window](#sliding-join-window)
+    - [Look back interval](#look-back-interval)
+    - [Waiting interval](#waiting-interval)
+    - [Timed out records](#timed-out-records)
+    - [Output window](#output-window)
 - [Implementation](#implementation)
   - [Join scenarios](#join-scenarios)
-    - [Same period](#same-period)
+    - [On time](#on-time)
     - [A is late](#a-is-late)
+    - [A is late](#a-is-late-1)
     - [B is late](#b-is-late)
     - [Incremental join of A and B is outdated](#incremental-join-of-a-and-b-is-outdated)
   - [Implementation using SQL](#implementation-using-sql)
@@ -26,65 +36,150 @@ For a detailed description of how this join works, please continue reading.
 - [Usage](#usage)
 - [Contributing](#contributing)
 - [License](#license)
+- [Future research](#future-research)
 
 # Incremental refresh
 
-Suppose you have two big data tables (e.g. Delta tables). Because the tables are so big, they are incrementally refreshed. This means that every day we add or change only the new data and mark this with e.g. a unique timestamp. Using this timestamp, downstream applications can pick up these changes and there is no need for an expensive full table refresh. This paper will explain how we can also use this timestamp for efficient joining.
+Suppose you have two big datasets that are incrementally refreshed. This means that every day we add or change only the new data and mark this with a unique timestamp. Using this timestamp, downstream applications can pick up these changes and there is no need for an expensive full table refresh. 
 
-![datasets](docs/datasets-1.png)
+# Incremental join
 
-# Example data
+After loading the data, we want to join the two datasets. This join can become quite complex, because you will have to take into account that data might arrive late, or not at all. There is a tradeoff between completeness and performance here. When tables are small, we usually include all data in the join, this makes our code simple, but also slower. For big data tables this is not an option. 
 
-To explain this incremental join we introduce the following example datasets:
+**Requirements of incremental join function:**
+- Performance: Filter A and B into the smallest subsets possible before joining. 
+- Consistency: The outcome of the join is not dependent on the size of the join interval (e.g. daily, monthly, yearly). This is often a requirement when using the data for machine learning and you don't want to be troubled by changing historic data.  
+
+Moving the join logic to a dedicated function implements the following requirements:
+- Efficiency: Users do not have to worry about the complexity of incremental join. 
+- Maintainability: The complexity of incremental join is removed from your code and thus it makes your code more readable and easier to maintain.  
+- Code quality: Prevent user mistakes in the complex joining conditions of incremental join by externalizing and parameterizing this code. 
+
+# Example
+
+To explain the implementation of incremental joining we introduce the following example datasets:
 
 - A: Bank Transactions from the financial system  
 - B: Bank Transactions from the SEPA payment engine.
 
-Note that both tables are huge (multiple terabytes) and both tables contain facts that do not change, so we only need to add new data (or facts) to A and B and we don't need to update any historic data.
+Note that both tables are huge (multiple terabytes).
 
-# Joining incrementally refreshed tables
+Let's introduce some example data:
+## A
+| TrxDT               | CreditDebit | AmountEuro   | AccountName    | TrxId | RecordDate<sup>[1](#fn1)</sup> |
+| ------------------- | ----------- | ------------ | -------------- | ----- | ---------- |
+| 2025-03-06 20:45:19 | Credit      | 700.3000000  | Madame Zsa Zsa | 1     | 2025-03-06 |
+| 2025-03-06 12:22:01 | Debit       | 200.0000000  | Madame Zsa Zsa | 2     | 2025-03-06 |
+| 2025-03-06 20:59:00 | Debit       | 1110.2000000 | Madame Zsa Zsa | 3     | 2025-03-06 |
+| 2025-03-06 23:50:00 | Credit      | 50.0000000   | Madame Zsa Zsa | 4     | 2025-03-07 |
+| 2025-03-06 08:00:00 | Credit      | 1500.0000000 | Mr. X          | 5     | 2025-03-07 |
+| 2025-03-07 14:45:00 | Debit       | 300.2500000  | Mr. X          | 6     | 2025-03-07 |
+| 2025-03-10 09:00:00 | Credit      | 99.9900000   | Mr. X          | 7     | 2025-03-08 |
+<sub>1. <a name="fn1"></a>RecordDate represents the moment at which the record was stored in this dataset. For simplicity we use dates instead of timestamps</sub>
 
-Suppose we want to join A with B and because both A and B are big we want to limit the scope of this join to the smallest possible dataset. The issue is however that **we don't know exactly which increment contains the matching records** in B. This is requirement 1.
+## B
+| TrxId | CountryCode | RecordDate |
+| ----- | ----------- | ---------- |
+| 1     | NL          | 2025-03-05 |
+| 2     | NL          | 2025-03-04 |
+| 3     | NL          | 2025-03-06 |
+| 4     | UK          | 2025-03-07 |
+| 5     | NL          | 2025-03-12 |
+| 6     | NL          | 2025-03-18 |
+| 7     | DE          | 2025-03-06 |
 
-- _Requirement 1._ Join A with B where B is filtered to the smallest scope possible in order to get the best performance.
+## Arrival time of A versus B
+The following chart shows the arrival time of A versus the arrival time of B. Arrival time a synonym of RecordDate.   
+![datasets](docs/arrival_time_a_b.png)
 
-A second requirement is that we want to have a waiting mechanism for records that do not match, because the matching record in B can still arrive in the future.
+### Observations:
 
-- _Requirement 2._ Wait for unmatched records for a certain amount of time (called the look forward period).
+We will abbreviate a transaction as Trx. 
 
-However we should not wait forever, because we do not want to postpone the delivery of these unmatched records from A to the consumer.
+- There are 7 transactions, each with a unique TrxId
+- Trx 3 and 4 arrive on the same day in dataset A and B.
+- Trx 1,2 and 7 have already arrived in B at the time they arrive in A ( we say that A is late).
+- Trx 5 and 6 arrive late in B ( B is late).    
 
-- _Requirement 3._ If after this look forward period the match between A and B can still not be made we call this join outdated. Outdated records from A will be delivered to the consumer. However they will not be joined with B.
+Let's quantify how late B is with respect to A.
+| TrxId | RecordDate_A | RecordDate_B | DiffDays |
+| ----- | ------------ | ------------ | -------- |
+| 1     | 2025-03-06   | 2025-03-05   | -1        |
+| 2     | 2025-03-06   | 2025-03-04   | -2        |
+| 3     | 2025-03-06   | 2025-03-06   | 0        |
+| 4     | 2025-03-07   | 2025-03-07   | 0        |
+| 5     | 2025-03-07   | 2025-03-12   | 5       |
+| 6     | 2025-03-07   | 2025-03-18   | 11      |
+| 7     | 2025-03-08   | 2025-03-06   | -2        |
 
-The final requirement is that no matter how we process this join (e.g. per day, month or year), the outcome should always be the same — in other words: the history of the joined data should never change. This last requirement is important when you use this data e.g. for machine learning and you don't want to have to deal with changing data.
+## Sliding join window
 
-- _Requirement 4._ The result of A incremental join B should always stay the same, even if you reprocess this join using a larger interval (e.g. month or year). 
+The sliding join window defines how we filter B when incrementally joining A with B. The sliding join window is defined with repect to dataset A. 
+This example shows that we need to look back at most 2 days and wait 11 days in order to always find a match in B. 
 
-This requirement is relevant when you reprocess the join for old data that was previously processed on a daily basis. For example, if you reprocess the year 2023 all at once and B contains all records of 2023, this might give a better join, but because of requirement 4 we will join as good as we did when it was daily processed. The con of this requirement is that you don't benefit from a better match percentage when you join on a larger interval. The pro is that your machine learning models will behave the same because the data has not changed.
+`JoinWindow(a) = a.RecordDate - look_back_interval till a.RecordDate + waiting_interval`
+
+We define the SlidingJoinWindow on A and then apply it on B (by setting the filter to match this window). 
+Note that this window is a sliding window with respect to the RecordDate of A. 
+
+### Look back interval
+How many days should we include in our filter to look back in arrival time of B ? Setting look back too high has negative impact on performance. Setting it too low will result in mismatches in the join. 
+
+### Waiting interval
+how many days should we wait for the arrival of B. Setting the waiting interval too high results in high latencies in the delivery of the data to the consumer. Setting it too low will result in mismatches in the join. 
+
+Ideally look back and waiting intervals are defined on max deltas in the historic data, potentially incremented with some bandwith for future scenario's.  
+
+![datasets](docs/datasets-1.png)
+
+### Timed out records
+
+The waiting interval defines how long we should wait for a matching record in B. When a match is not found after this interval, we call the record timed out. Waiting means that the incremental join will not output the record during this waiting interval. At the moment it is timed out, the record will be send to the output having a timed out status. 
+
+For example, if we would take a waiting interval smaller than 11 then Trx 6 would be timed out at A.RecordDate + wait interval. E.g. When wait interval would be 10, Trx 6. would be timed out at 2025-03-17.
+
+### Output window
+
+The output window defines the interval for which we want to generate the output of the incremental join. Typical values are: 
+- daily
+- monthly 
+- yearly  
+- all 
+  
+But you are free to choose any custom output window as well.  
+The output window is not a moving window. It does not slide with the value of RecordDate. 
+
+For example: we want to have the output of the inc_join for 2025-03-07 (daily), or 2025-03 (monthly). 
 
 # Implementation
 
+Our implementation builds a sql query that makes use of the **sliding join window** and **output window** and combines 4 join scenario's:
+
 ## Join scenarios
 
-### Same period
+### On time
 
-A and B are processed in the same increment, or on the same day (assuming that an increment is a day). This is the happy flow and for most records this is usually the case.
-
+A and B arrived both in the output window. 
+A.RecordDT 
 ### A is late
 
 A is in a newer increment than B. For example on March 6 we receive a record in A that we are expected to join with B, but the matching record in B was already present in the increment of March 2.
 
 **Look back period** specifies the number of increments that we look back when trying to join A and B (e.g. 6 days).
+### A is late
+`A.RecordDate between(ProcessWindow.StartDT - Look back interval .. ProcessWindow.EndDT + waiting interval) 
+`
+
 
 ### B is late
 
 When we process A on March 6, B is not present yet. Only on March 10 the matching record in B is delivered.
 
-**Look forward period** specifies the number of increments that we look forward when trying to match A and B (e.g. 10 days).
+**wait period** specifies the number of increments that we wait when trying to match A and B (e.g. 10 days).
 
 ### Incremental join of A and B is outdated
 
-After the lookback and lookforward we still cannot match A and B. For example: if we still did not find a match on March 16, then we send A unmatched to the output (because A was received on March 6 and the look forward period is 10 days).
+After the lookback and lookforward we still cannot match A and B. For example: if we still did not find a match on March 16, then we send A unmatched to the output (because A was received on March 6 and the wait period is 10 days).
 
 ## Implementation using SQL
 
@@ -142,7 +237,7 @@ Note that we identify each increment with a unique and sequential timestamp. Whe
 
 # Conclusion
 
-We described a way of joining very large incrementally refreshed tables, focused on performance and consistency. We moved this logic into a Python function in Databricks. The big advantage is that you remove complexity from your code, so your code becomes more readable. It will only contain the things that are specific for the datasets that you are joining, e.g. join condition, look back and look forward intervals and aliases for the datasets so that you will not get duplicated columns.
+We described a way of joining very large incrementally refreshed tables, focused on performance and consistency. We moved this logic into a Python function in Databricks. The big advantage is that you remove complexity from your code, so your code becomes more readable. It will only contain the things that are specific for the datasets that you are joining, e.g. join condition, look back and wait intervals and aliases for the datasets so that you will not get duplicated columns.
 
 # Installation
 
@@ -170,3 +265,8 @@ Contributions are welcome! Please read the [CONTRIBUTING.md](CONTRIBUTING.md) fo
 # License
 
 This project is licensed under the GNU Lesser General Public License v3 or later (LGPLv3+) License - see the [LICENSE](LICENSE) file for details.
+
+# Future research
+
+- The reason that we have to be carefull with the size of the join window is that spark will select all needed columns of A and B for this join window. This has a huge performance impact. However if we would take a two step approach where we first retrieve the RecordDate for a given foreign key and use that in our join, this would make the second step faster and makes the look back interval of the join window obsolete. We would still have to wait in this case.  
+- When doing an inner join or left join, spark should be able to leverage the indexing of the foreign key (e.g. Z-Order or liquid cluster) in order to make an efficient query plan that does only retrieve relevant records. Our experience shows that this is currently not implemented that way. The query plan is quite simple: read A and B completely and then do the join. 

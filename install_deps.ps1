@@ -1,0 +1,18 @@
+param(
+    [string]$PythonExe = "python"
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+# Ensure we're in repo root (this script should live here)
+$repoRoot = Resolve-Path "."
+Set-Location $repoRoot
+
+& $PythonExe -m pip install --upgrade pip
+& $PythonExe -m pip install -r requirements.txt
+
+Write-Host "Dependencies installed via requirements.txt" -ForegroundColor Green
+
+
+
