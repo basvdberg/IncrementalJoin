@@ -15,8 +15,8 @@ class IncJoinSettings:
     Attributes:
         alias_a (str): Alias for the first dataset (df_a) to disambiguate column names if conflicts occur. Defaults to 'A'.
         alias_b (str): Alias for the second dataset (df_b) to disambiguate column names if conflicts occur. Defaults to 'B'.
-        include_waiting (bool): If True, include unmatched rows from df_a (waiting records). Defaults to False.
-        timestamp_col_name (str): Name of the incremental timestamp column. Defaults to 'RecordDT'.
+        include_waiting (bool): If True, include unmatched rows from df_a in the output(waiting records). Defaults to False.
+        timestamp_col_name (str): Name of the incremental timestamp column. Defaults to 'RecordDT'. Should exist in both datasets.
     """
     alias_a: str = 'A'
     alias_b: str = 'B'
@@ -31,11 +31,16 @@ def inc_join(
     join_cols: Union[str, list] = None,
     join_cond: Optional[str] = None,
 
-    look_back_days: int = 0,
-    waiting_days: int = 0,
-    join_window_start_dt: datetime = None,
-    join_window_end_dt: datetime = None,
-    other_settings: Optional[IncJoinSettings] = None,
+    # define the sliding join window:
+    look_back_time: datetime.timedelta = datetime.timedelta(0),
+    waiting_time: datetime.timedelta = datetime.timedelta(days=0),
+
+    # define the output window:
+    output_window_start_dt: datetime.datetime = None,
+    output_window_end_dt: datetime.datetime = None,
+    
+    # to reduce the amount of parameters, other settings are passed as an IncJoinSettings object
+    other_settings: Optional[IncJoinSettings] = IncJoinSettings,
 ) -> DataFrame:
     """
     Perform an incremental join between two PySpark DataFrames.

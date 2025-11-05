@@ -2,7 +2,9 @@ import unittest
 from datetime import datetime, date, timedelta
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col
-from time_window import TimeWindow
+
+from time_utils import TimeWindow
+
 
 class TestTimeWindow(unittest.TestCase):
 
@@ -38,9 +40,9 @@ class TestTimeWindow(unittest.TestCase):
             TimeWindow(dt_end, dt_start)
 
     def test_contains_python(self):
-        tw = TimeWindow(datetime(2025, 11, 4, 10), datetime(2025, 11, 4, 12))
-        inside = datetime(2025, 11, 4, 11)
-        outside = datetime(2025, 11, 4, 13)
+        tw = TimeWindow(datetime(2025, 11, 3,10, 20), datetime(2025, 11, 4, 12,30))
+        inside = datetime(2025, 11, 4, 11,0)
+        outside = datetime(2025, 11, 4, 13, 12,31)
         self.assertTrue(tw.contains(inside))
         self.assertFalse(tw.contains(outside))
 

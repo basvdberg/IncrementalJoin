@@ -1,0 +1,13 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: "/time_utils"
+    schedule:
+      interval: weekly
+
+
+

@@ -41,7 +41,7 @@ class TimeWindow:
         else:
             raise TypeError(f"Expected date or datetime, got {type(val)}")
 
-def contains(self, col_or_val: Column | date | datetime) -> Column | bool:
+    def contains(self, col_or_val: Column | date | datetime) -> Column | bool:
         """
         Check if a Spark column or a Python datetime/date is within the time window.
 

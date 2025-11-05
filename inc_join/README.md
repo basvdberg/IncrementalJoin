@@ -26,7 +26,6 @@ For a detailed description of how this join works, please continue reading.
   - [Join scenarios](#join-scenarios)
     - [On time](#on-time)
     - [A is late](#a-is-late)
-    - [A is late](#a-is-late-1)
     - [B is late](#b-is-late)
     - [Incremental join of A and B is outdated](#incremental-join-of-a-and-b-is-outdated)
   - [Implementation using SQL](#implementation-using-sql)
@@ -90,6 +89,7 @@ Let's introduce some example data:
 
 ## Arrival time of A versus B
 The following chart shows the arrival time of A versus the arrival time of B. Arrival time a synonym of RecordDate.   
+
 ![datasets](docs/arrival_time_a_b.png)
 
 ### Observations:
@@ -159,23 +159,37 @@ Our implementation builds a sql query that makes use of the **sliding join windo
 
 ### On time
 
-A and B arrived both in the output window. 
-A.RecordDT 
+A and B arrived both within the output window. 
+
+- `A.RecordDT is contained in the output window` 
+- `B.RecordDT is contained in the output window` 
+- if `enfore_sliding_join_window` then 
+  - `B.RecordDT is contained in the sliding join window of df_a(RecordDT)`
+- `Output.RecordDT = max(df_a.RecordDT, df_b.RecordDT)`
+
 ### A is late
 
-A is in a newer increment than B. For example on March 6 we receive a record in A that we are expected to join with B, but the matching record in B was already present in the increment of March 2.
+A arrived later than B. 
 
-**Look back period** specifies the number of increments that we look back when trying to join A and B (e.g. 6 days).
-### A is late
-`A.RecordDate between(ProcessWindow.StartDT - Look back interval .. ProcessWindow.EndDT + waiting interval) 
-`
-
+- `A.RecordDT is contained in the output window` 
+- `B.RecordDT is contained in the output window extended with -look_back_time` 
+- if `enfore_sliding_join_window` then 
+  - `B.RecordDT is contained in the sliding join window of df_a(RecordDT)`
+- `Output.RecordDT = df_a.RecordDT`
 
 ### B is late
 
-When we process A on March 6, B is not present yet. Only on March 10 the matching record in B is delivered.
+B arrived later than A. 
 
-**wait period** specifies the number of increments that we wait when trying to match A and B (e.g. 10 days).
+We cannot extend the filter on output window to the future, because the output window can be set to the latest available increment. Assumption: if there is a previous increment, then it is loaded, or in other words: the data is loaded historically in a sequential order. So we can always extend our filter to the past. 
+
+
+- `B.RecordDT is contained in the output window` 
+- `A.RecordDT is contained in the output window extended with waiting_time` 
+- if `enfore_sliding_join_window` then 
+  - `B.RecordDT is contained in the sliding join window of df_a(RecordDT)`
+- `Output.RecordDT = df_a.RecordDT`
+
 
 ### Incremental join of A and B is outdated
 
