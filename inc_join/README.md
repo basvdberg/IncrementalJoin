@@ -27,7 +27,7 @@ For a detailed description of how this join works, please continue reading.
     - [On time](#on-time)
     - [A is late](#a-is-late)
     - [B is late](#b-is-late)
-    - [Incremental join of A and B is outdated](#incremental-join-of-a-and-b-is-outdated)
+    - [A is timed out](#a-is-timed-out)
   - [Implementation using SQL](#implementation-using-sql)
   - [Target increment timestamp](#target-increment-timestamp)
 - [Conclusion](#conclusion)
@@ -154,6 +154,11 @@ For example: we want to have the output of the inc_join for 2025-03-07 (daily), 
 # Implementation
 
 Our implementation builds a sql query that makes use of the **sliding join window** and **output window** and combines 4 join scenario's:
+df_output: the output dataset. 
+delta_arrival_time: df_B.RecordDT - df_A.RecordDT
+
+Some considerations:
+- df_output.RecordDT is always contained in the output window. 
 
 ## Join scenarios
 
@@ -164,36 +169,42 @@ A and B arrived both within the output window.
 - `A.RecordDT is contained in the output window` 
 - `B.RecordDT is contained in the output window` 
 - if `enfore_sliding_join_window` then 
-  - `B.RecordDT is contained in the sliding join window of df_a(RecordDT)`
-- `Output.RecordDT = max(df_a.RecordDT, df_b.RecordDT)`
+  - `B.RecordDT is contained in the sliding join window of df_a.RecordDT`
+- `Output.RecordDT = max(df_A.RecordDT, df_B.RecordDT)`
 
 ### A is late
 
 A arrived later than B. 
 
+- `delta_arrival_time < 0` 
 - `A.RecordDT is contained in the output window` 
 - `B.RecordDT is contained in the output window extended with -look_back_time` 
-- if `enfore_sliding_join_window` then 
-  - `B.RecordDT is contained in the sliding join window of df_a(RecordDT)`
-- `Output.RecordDT = df_a.RecordDT`
+- if `enforce_sliding_join_window` then 
+  - `B.RecordDT is contained in the sliding join window of df_a.RecordDT`
+- `Output.RecordDT = df_A.RecordDT`
 
 ### B is late
 
 B arrived later than A. 
 
-We cannot extend the filter on output window to the future, because the output window can be set to the latest available increment. Assumption: if there is a previous increment, then it is loaded, or in other words: the data is loaded historically in a sequential order. So we can always extend our filter to the past. 
+We cannot extend the filter that is based on output window to the future, because the output window can be set to the latest available increment. Assumption: if there is a previous increment, then it will be loaded, or in other words: the data is loaded historically in a sequential order. So we can always extend our filter to the past. 
 
-
+- `delta_arrival_time > 0` 
 - `B.RecordDT is contained in the output window` 
-- `A.RecordDT is contained in the output window extended with waiting_time` 
+- `A.RecordDT is contained in the output window extended with -waiting_time` 
+  So A might have arrived before the output window.
 - if `enfore_sliding_join_window` then 
-  - `B.RecordDT is contained in the sliding join window of df_a(RecordDT)`
-- `Output.RecordDT = df_a.RecordDT`
+  - `B.RecordDT is contained in the sliding join window of df_a.RecordDT`
+- `Output.RecordDT = df_B.RecordDT`
 
+### A is timed out
 
-### Incremental join of A and B is outdated
-
-After the lookback and lookforward we still cannot match A and B. For example: if we still did not find a match on March 16, then we send A unmatched to the output (because A was received on March 6 and the wait period is 10 days).
+- `delta_arrival_time == waiting_time` 
+- `B.RecordDT is None (no matching record found in df_B)` 
+- `A.RecordDT is contained in the output window extended with -waiting_time` 
+- if `enfore_sliding_join_window` then 
+  - `B.RecordDT is contained in the sliding join window of df_a.RecordDT`
+- `Output.RecordDT = df_A.RecordDT + waiting_time`
 
 ## Implementation using SQL
 
