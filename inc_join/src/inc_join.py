@@ -217,7 +217,7 @@ def inc_join(
     # because the output contains only matched records or timed out records.
     # but you can override this by behaviour via the include_waiting setting.
     if not settings.include_waiting:
-        result = result.filter(F.col("DiffArrivalTimeDays") == 0)   
+        result = result.filter(F.col("DiffArrivalTimeDays").isNotNull())   
 
     # Compute final inc_col_name
     # When matched: max(A.[inc_col_name], B.[inc_col_name])
@@ -228,12 +228,5 @@ def inc_join(
                F.greatest(inc_col_a, inc_col_b))
          .otherwise(F.expr(f"date_add({settings.alias_a}.{settings.inc_col_name}, {waiting_time})"))
     )
-
-    # Apply output window filter on the final result
-    # Output.[inc_col_name] must be contained in the output window
-    # if output_window_start_dt is not None:
-    #     result = result.filter(F.col(settings.inc_col_name) >= F.lit(output_window_start_dt))
-    # if output_window_end_dt is not None:
-    #     result = result.filter(F.col(settings.inc_col_name) <= F.lit(output_window_end_dt))
 
     return result
