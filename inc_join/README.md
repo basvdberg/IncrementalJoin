@@ -29,7 +29,6 @@ For a detailed description of how this join works, please continue reading.
     - [B is late](#b-is-late)
     - [A is timed out](#a-is-timed-out)
   - [Implementation using SQL](#implementation-using-sql)
-  - [Target increment timestamp](#target-increment-timestamp)
 - [Conclusion](#conclusion)
 - [Installation](#installation)
 - [Usage](#usage)
@@ -259,30 +258,24 @@ OR
 )
 ```
 
-## Target increment timestamp
-
-Note that we identify each increment with a unique and sequential timestamp. When we join A with B we should define the target timestamp for the joined data.
-
-**Target timestamp for A incremental join B:** Max timestamp from A and B or outdated timestamp.
-
 # Conclusion
 
-We described a way of joining very large incrementally refreshed tables, focused on performance and consistency. We moved this logic into a Python function in Databricks. The big advantage is that you remove complexity from your code, so your code becomes more readable. It will only contain the things that are specific for the datasets that you are joining, e.g. join condition, look back and wait intervals and aliases for the datasets so that you will not get duplicated columns.
+We described a way of joining very large incrementally refreshed tables, focused on performance and consistency. We moved this logic into a Python function in Databricks. The big advantage is that you remove complexity from your code, so your code becomes more readable. Your code will only contain the things that are specific for the datasets that you are joining, e.g. join condition, look back and waiting time.
 
 # Installation
 
-To install My Python Library, you can use pip:
+To install this library, you can use pip:
 
 ```
-pip install my-python-library
+pip install inc-join
 ```
 
 # Usage
 
-Here is a simple example of how to use My Python Library:
+Here is a simple example of how to use inc_join:
 
 ```python
-from my_python_library import some_function
+from my_python_library import inc_join
 
 result = some_function()
 print(result)
@@ -298,5 +291,5 @@ This project is licensed under the GNU Lesser General Public License v3 or later
 
 # Future research
 
-- The reason that we have to be carefull with the size of the join window is that spark will select all needed columns of A and B for this join window. This has a huge performance impact. However if we would take a two step approach where we first retrieve the RecordDate for a given foreign key and use that in our join, this would make the second step faster and makes the look back interval of the join window obsolete. We would still have to wait in this case.  
+- The reason that we have to be careful with the size of the join window is that spark will select all needed columns of A and B for this join window. This has a huge performance impact. However if we would take a two step approach where we first retrieve the RecordDate for a given foreign key and use that in our join, this would make the second step faster and makes the look back interval of the join window obsolete. We would still have to wait in this case.  
 - When doing an inner join or left join, spark should be able to leverage the indexing of the foreign key (e.g. Z-Order or liquid cluster) in order to make an efficient query plan that does only retrieve relevant records. Our experience shows that this is currently not implemented that way. The query plan is quite simple: read A and B completely and then do the join. 
