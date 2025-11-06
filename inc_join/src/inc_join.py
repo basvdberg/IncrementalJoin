@@ -53,8 +53,8 @@ def inc_join(
                              'leftsemi', 'left_semi', 'anti', 'leftanti', 'left_anti'. Defaults to 'inner'.
         join_cols (str or list, optional): Column(s) to join on. Should exist in both datasets.
         join_condition (str, optional): Extra join condition. Use aliases `a` and `b` to refer to `df_a` and `df_b`.
-        waiting_days (int): Days to add if a row from df_a has no match in df_b.
-        look_back_days (int): Look-back interval in days to include late arrivals from df_b. Defaults to 0.
+        waiting_time (timedelta): Days to add if a row from df_a has no match in df_b.
+        look_back_time (timedelta): Look-back interval to include late arrivals from df_b. Defaults to 0.
         join_window_start_dt (Optional[datetime]): Start datetime string to filter df_a before joining. Defaults to None.
         join_window_end_dt (Optional[datetime]): End datetime string to filter df_a before joining. Defaults to None.
         settings (IncJoinSettings, optional): An IncJoinSettings object containing advanced join options:
