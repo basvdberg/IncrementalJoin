@@ -134,13 +134,13 @@ def inc_join(
 
     Returns:
         DataFrame: The result of the incremental join, including:
-            - All columns from df_a (with alias suffix if conflicts exist).
-            - All columns from df_b (with alias suffix if conflicts exist).
             - Join columns (from join_cols): coalesced values across df_a and df_b, restored under the
               original column names.
             - inc_col_name: Maximum of df_a and df_b incremental column values when matched, or
               df_a.[inc_col_name] + max_waiting_time if unmatched (timed out). Always contained
               within the output window.
+            - All columns from df_a (with alias suffix if conflicts exist).
+            - All columns from df_b (with alias suffix if conflicts exist).
             - DiffArrivalTime: Difference in days between df_b and df_a incremental column values:
                 - 0 if both arrive at the same time.
                 - >0 if df_b is late (B.[inc_col_name] > A.[inc_col_name]).
@@ -149,31 +149,24 @@ def inc_join(
             - WaitingTime: For unmatched df_a records, the number of days waited before timing out.
               Computed as the minimum of max_waiting_time and the days between df_a.[inc_col_name] and
               output_window_end_dt. Null for matched records.
-            - JoinType: String describing which numbered scenario applied to each record:
-                - "1_same_time"
-                - "2_a_late"
-                - "3_b_late"
-                - "4_a_timed_out" (also assigned when WaitingTime equals max_waiting_time)
-                - "5_a_waiting" (assigned when no match found but WaitingTime < max_waiting_time)
-
-    Join Scenarios:
-        The function handles five join scenarios:
-        1. Same time: A and B arrived at the same time (delta_arrival_time == 0).
-        2. A is late: A arrived later than B (delta_arrival_time < 0).
-        3. B is late: B arrived later than A (delta_arrival_time > 0).
-        4. A is timed out: No match found in df_b after max_waiting_time (B.[inc_col_name] is None).
-        5. A is waiting: No match found in df_b yet, but WaitingTime < max_waiting_time (only included when include_waiting=True).
+            - JoinType: Short string describing which join scenario applies to this record:
+                - "same_time": A and B arrived at the same time (delta_arrival_time == 0).
+                - "a_late": A arrived later than B (delta_arrival_time < 0).
+                - "b_late": B arrived later than A (delta_arrival_time > 0).
+                - "a_timed_out": No match found in df_b after max_waiting_time (B.[inc_col_name] is None).
+                - "a_waiting": No match found in df_b yet, but WaitingTime < max_waiting_time (only included when include_waiting=True).
     """
     # Validate that look_back_time and max_waiting_time are non-negative
     if look_back_time is None or look_back_time < 0:
         raise ValueError("look_back_time must be a non-negative integer (>= 0)")
     if max_waiting_time is None or max_waiting_time < 0:
         raise ValueError("max_waiting_time must be a non-negative integer (>= 0)")
-    # if no end of output windows is specified, we filter up untill today ( no future data)
+    # if no end of output window is specified, we take today as end date because 
+    # the inc_col value cannot be in the future.
     if output_window_end_dt is None:
         output_window_end_dt = datetime.datetime.now()
         log.debug(
-            "Output window end not specified; defaulting to current timestamp %s",
+            "Output window end not specified; defaulting to today %s",
             output_window_end_dt,
         )
     if other_settings is None:
@@ -183,7 +176,7 @@ def inc_join(
 
     join_cols_list: list[str] = []
     if join_cols:
-        join_cols_list = [join_cols] if isinstance(join_cols, str) else list(join_cols)
+        join_cols_list = [join_cols] if isinstance(join_cols, str) else list[str](join_cols)
 
     if log.isEnabledFor(logging.DEBUG):
         join_cond_repr = None
@@ -208,14 +201,14 @@ def inc_join(
             settings.enforce_sliding_join_window,
         )
 
-    common_cols = set(df_a.columns) & set(df_b.columns)
+    common_cols = set[str](df_a.columns) & set[str](df_b.columns)
     if common_cols:
         log.debug(f"Common columns to rename: {common_cols}")
     else:
         log.debug("No common columns detected between df_a and df_b")
 
     # Helper function to rename columns with collision check
-    def rename_columns(df, rename_map, df_name):
+    def rename_columns(df: DataFrame, rename_map: dict[str, str], df_name: str) -> DataFrame:
         """Rename columns in df according to rename_map, checking for collisions."""
         for old_name, new_name in rename_map.items():
             if new_name in df.columns:
@@ -374,13 +367,13 @@ def inc_join(
         F.col("WaitingTime") < F.lit(max_waiting_time)
     )
     scenario_col = (
-        F.when(timed_out_condition, F.lit(4))
-        .when(F.col("DiffArrivalTime") == 0, F.lit(1))
-        .when(F.col("DiffArrivalTime") < 0, F.lit(2))
-        .when(F.col("DiffArrivalTime") > 0, F.lit(3))
-        .when(waiting_condition, F.lit(5))
+        F.when(timed_out_condition, F.lit("a_timed_out"))
+        .when(waiting_condition, F.lit("a_waiting"))
+        .when(F.col("DiffArrivalTime") == 0, F.lit("same_time"))
+        .when(F.col("DiffArrivalTime") < 0, F.lit("a_late"))
+        .when(F.col("DiffArrivalTime") > 0, F.lit("b_late"))
         .otherwise(F.lit(None))
-    ).cast("smallint")
+    )
     result = result.withColumn("JoinType", scenario_col)
 
     # By default, waiting records are not included in the output,

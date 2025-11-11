@@ -5,6 +5,16 @@ import pandas as pd
 import pytest
 from pyspark.sql import Row, SparkSession
 
+JOIN_RESULT_SCHEMA = (
+    "TrxId INT, RecDate DATE, RecDate_A DATE, RecDate_B DATE, DiffArrivalTime INT, JoinType STRING"
+)
+
+JOIN_RESULT_SCHEMA_WITH_WAITING = (
+    "TrxId INT, RecDate DATE, RecDate_A DATE, RecDate_B DATE, DiffArrivalTime INT, WaitingTime INT, JoinType STRING"
+)
+
+
+
 from src import inc_join
 from src.inc_join import IncJoinSettings
 
@@ -104,7 +114,7 @@ def create_example_data(spark: SparkSession):
 
 
 def print_jointype_legend() -> None:
-    print("JoinType legend: 1=same_time, 2=a_late, 3=b_late, 4=a_timed_out, 5=a_waiting")
+    print("JoinType legend: same_time, a_late, b_late, a_timed_out, a_waiting")
 
 
 def assert_sparkframes_equal(actual_df, expected_df, sort_keys):
@@ -135,7 +145,7 @@ def assert_sparkframes_equal(actual_df, expected_df, sort_keys):
 # When look back is 1 Trx 1 should be looked back, but 2 and 7 should not.
 # Waiting time is 0, so 5 and 6 should not be in the output.
 # Of course 3 and 4 should be in the output, because they are on time.
-def test_inc_join_look_back_eq_1(spark: SparkSession):
+def test_inner_join_look_back_eq_1(spark: SparkSession):
     df_a, df_b = create_example_data(spark)
     settings = IncJoinSettings(
         inc_col_name="RecDate",
@@ -145,7 +155,7 @@ def test_inc_join_look_back_eq_1(spark: SparkSession):
     joined = inc_join(
         df_a,
         df_b,
-        how="left",
+        how="inner",
         join_cols="TrxId",
         look_back_time=1,
         max_waiting_time=0,
@@ -159,20 +169,17 @@ def test_inc_join_look_back_eq_1(spark: SparkSession):
 
     expected = spark.createDataFrame(
         [
-            Row(TrxId=1, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 5), DiffArrivalTime=-1, JoinType=2),
-            Row(TrxId=2, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=None, DiffArrivalTime=None, JoinType=4),
-            Row(TrxId=3, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 6), DiffArrivalTime=0, JoinType=1),
-            Row(TrxId=4, RecDate=date(2025, 3, 7), RecDate_A=date(2025, 3, 7), RecDate_B=date(2025, 3, 7), DiffArrivalTime=0, JoinType=1),
-            Row(TrxId=5, RecDate=date(2025, 3, 7), RecDate_A=date(2025, 3, 7), RecDate_B=None, DiffArrivalTime=None, JoinType=4),
-            Row(TrxId=6, RecDate=date(2025, 3, 7), RecDate_A=date(2025, 3, 7), RecDate_B=None, DiffArrivalTime=None, JoinType=4),
-            Row(TrxId=7, RecDate=date(2025, 3, 8), RecDate_A=date(2025, 3, 8), RecDate_B=None, DiffArrivalTime=None, JoinType=4),
+            Row(TrxId=1, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 5), DiffArrivalTime=-1, JoinType="a_late"),
+            Row(TrxId=3, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 6), DiffArrivalTime=0, JoinType="same_time"),
+            Row(TrxId=4, RecDate=date(2025, 3, 7), RecDate_A=date(2025, 3, 7), RecDate_B=date(2025, 3, 7), DiffArrivalTime=0, JoinType="same_time"),
         ],
+        schema=JOIN_RESULT_SCHEMA,
     )
     actual = joined.select(expected.columns).orderBy("TrxId")
     assert_sparkframes_equal(actual, expected, sort_keys="TrxId")
 
 
-def test_inc_join_no_enforce_sliding_window(spark: SparkSession):
+def test_inner_join_no_enforce_sliding_window(spark: SparkSession):
     """When we set enforce_sliding_join_window=False, the size of the output window determines our matching
     success. E.g. a large output window gives better matching. Note that we do extend the output window
     with -look_back_time and +max_waiting_time.
@@ -187,7 +194,7 @@ def test_inc_join_no_enforce_sliding_window(spark: SparkSession):
     actual = inc_join(
         df_a,
         df_b,
-        how="left",
+        how="inner",
         join_cols="TrxId",
         look_back_time=3,
         max_waiting_time=5,
@@ -201,20 +208,21 @@ def test_inc_join_no_enforce_sliding_window(spark: SparkSession):
 
     expected = spark.createDataFrame(
         [
-            Row(TrxId=1, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 5), DiffArrivalTime=-1, JoinType=2),
-            Row(TrxId=2, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 4), DiffArrivalTime=-2, JoinType=2),
-            Row(TrxId=3, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 6), DiffArrivalTime=0, JoinType=1),
-            Row(TrxId=4, RecDate=date(2025, 3, 7), RecDate_A=date(2025, 3, 7), RecDate_B=date(2025, 3, 7), DiffArrivalTime=0, JoinType=1),
-            Row(TrxId=5, RecDate=date(2025, 3, 12), RecDate_A=date(2025, 3, 7), RecDate_B=date(2025, 3, 12), DiffArrivalTime=5, JoinType=3),
-            Row(TrxId=6, RecDate=date(2025, 3, 18), RecDate_A=date(2025, 3, 7), RecDate_B=date(2025, 3, 18), DiffArrivalTime=11, JoinType=3),
-            Row(TrxId=7, RecDate=date(2025, 3, 8), RecDate_A=date(2025, 3, 8), RecDate_B=date(2025, 3, 6), DiffArrivalTime=-2, JoinType=2),
+            Row(TrxId=1, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 5), DiffArrivalTime=-1, JoinType="a_late"),
+            Row(TrxId=2, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 4), DiffArrivalTime=-2, JoinType="a_late"),
+            Row(TrxId=3, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 6), DiffArrivalTime=0, JoinType="same_time"),
+            Row(TrxId=4, RecDate=date(2025, 3, 7), RecDate_A=date(2025, 3, 7), RecDate_B=date(2025, 3, 7), DiffArrivalTime=0, JoinType="same_time"),
+            Row(TrxId=5, RecDate=date(2025, 3, 12), RecDate_A=date(2025, 3, 7), RecDate_B=date(2025, 3, 12), DiffArrivalTime=5, JoinType="b_late"),
+            Row(TrxId=6, RecDate=date(2025, 3, 18), RecDate_A=date(2025, 3, 7), RecDate_B=date(2025, 3, 18), DiffArrivalTime=11, JoinType="b_late"),
+            Row(TrxId=7, RecDate=date(2025, 3, 8), RecDate_A=date(2025, 3, 8), RecDate_B=date(2025, 3, 6), DiffArrivalTime=-2, JoinType="a_late"),
         ],
+        schema=JOIN_RESULT_SCHEMA,
     )
     actual = actual.select(expected.columns).orderBy("TrxId")
     assert_sparkframes_equal(actual, expected, sort_keys="TrxId")
 
-
-def test_inc_join_timed_out_rows(spark: SparkSession):
+#  because we inner join, the timed out rows are not included. 
+def test_inner_join_timed_out_rows(spark: SparkSession):
     df_a, df_b = create_example_data(spark)
 
     settings = IncJoinSettings(
@@ -225,7 +233,7 @@ def test_inc_join_timed_out_rows(spark: SparkSession):
     actual = inc_join(
         df_a,
         df_b,
-        how="left",
+        how="inner",
         join_cols="TrxId",
         look_back_time=3,
         max_waiting_time=5,
@@ -239,20 +247,20 @@ def test_inc_join_timed_out_rows(spark: SparkSession):
 
     expected = spark.createDataFrame(
         [
-            Row(TrxId=1, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 5), DiffArrivalTime=-1, JoinType=2),
-            Row(TrxId=2, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 4), DiffArrivalTime=-2, JoinType=2),
-            Row(TrxId=3, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 6), DiffArrivalTime=0, JoinType=1),
-            Row(TrxId=4, RecDate=date(2025, 3, 7), RecDate_A=date(2025, 3, 7), RecDate_B=date(2025, 3, 7), DiffArrivalTime=0, JoinType=1),
-            Row(TrxId=5, RecDate=date(2025, 3, 12), RecDate_A=date(2025, 3, 7), RecDate_B=date(2025, 3, 12), DiffArrivalTime=5, JoinType=3),
-            Row(TrxId=6, RecDate=date(2025, 3, 12), RecDate_A=date(2025, 3, 7), RecDate_B=None, DiffArrivalTime=None, JoinType=4),
-            Row(TrxId=7, RecDate=date(2025, 3, 8), RecDate_A=date(2025, 3, 8), RecDate_B=date(2025, 3, 6), DiffArrivalTime=-2, JoinType=2),
+            Row(TrxId=1, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 5), DiffArrivalTime=-1, JoinType="a_late"),
+            Row(TrxId=2, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 4), DiffArrivalTime=-2, JoinType="a_late"),
+            Row(TrxId=3, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 6), DiffArrivalTime=0, JoinType="same_time"),
+            Row(TrxId=4, RecDate=date(2025, 3, 7), RecDate_A=date(2025, 3, 7), RecDate_B=date(2025, 3, 7), DiffArrivalTime=0, JoinType="same_time"),
+            Row(TrxId=5, RecDate=date(2025, 3, 12), RecDate_A=date(2025, 3, 7), RecDate_B=date(2025, 3, 12), DiffArrivalTime=5, JoinType="b_late"),
+            Row(TrxId=7, RecDate=date(2025, 3, 8), RecDate_A=date(2025, 3, 8), RecDate_B=date(2025, 3, 6), DiffArrivalTime=-2, JoinType="a_late"),
         ],
+        schema=JOIN_RESULT_SCHEMA,
     )
     actual = actual.select(expected.columns).orderBy("TrxId")
     assert_sparkframes_equal(actual, expected, sort_keys="TrxId")
 
 
-def test_inc_join_small_output_window(spark: SparkSession):
+def test_inner_join_small_output_window(spark: SparkSession):
     df_a, df_b = create_example_data(spark)
 
     settings = IncJoinSettings(
@@ -263,7 +271,7 @@ def test_inc_join_small_output_window(spark: SparkSession):
     actual = inc_join(
         df_a,
         df_b,
-        how="left",
+        how="inner",
         join_cols="TrxId",
         look_back_time=3,
         max_waiting_time=5,
@@ -277,18 +285,19 @@ def test_inc_join_small_output_window(spark: SparkSession):
 
     expected = spark.createDataFrame(
         [
-            Row(TrxId=1, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 5), DiffArrivalTime=-1, JoinType=2),
-            Row(TrxId=2, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 4), DiffArrivalTime=-2, JoinType=2),
-            Row(TrxId=3, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 6), DiffArrivalTime=0, JoinType=1),
-            Row(TrxId=4, RecDate=date(2025, 3, 7), RecDate_A=date(2025, 3, 7), RecDate_B=date(2025, 3, 7), DiffArrivalTime=0, JoinType=1),
-            Row(TrxId=7, RecDate=date(2025, 3, 8), RecDate_A=date(2025, 3, 8), RecDate_B=date(2025, 3, 6), DiffArrivalTime=-2, JoinType=2),
+            Row(TrxId=1, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 5), DiffArrivalTime=-1, JoinType="a_late"),
+            Row(TrxId=2, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 4), DiffArrivalTime=-2, JoinType="a_late"),
+            Row(TrxId=3, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 6), DiffArrivalTime=0, JoinType="same_time"),
+            Row(TrxId=4, RecDate=date(2025, 3, 7), RecDate_A=date(2025, 3, 7), RecDate_B=date(2025, 3, 7), DiffArrivalTime=0, JoinType="same_time"),
+            Row(TrxId=7, RecDate=date(2025, 3, 8), RecDate_A=date(2025, 3, 8), RecDate_B=date(2025, 3, 6), DiffArrivalTime=-2, JoinType="a_late"),
         ],
+        schema=JOIN_RESULT_SCHEMA,
     )
     actual = actual.select(expected.columns).orderBy("TrxId")
     assert_sparkframes_equal(actual, expected, sort_keys="TrxId")
 
 
-def test_inc_join_march_6(spark: SparkSession):
+def test_inner_join_march_6(spark: SparkSession):
     df_a, df_b = create_example_data(spark)
 
     settings = IncJoinSettings(
@@ -299,7 +308,7 @@ def test_inc_join_march_6(spark: SparkSession):
     actual = inc_join(
         df_a,
         df_b,
-        how="left",
+        how="inner",
         join_cols="TrxId",
         look_back_time=3,
         max_waiting_time=5,
@@ -313,16 +322,17 @@ def test_inc_join_march_6(spark: SparkSession):
 
     expected = spark.createDataFrame(
         [
-            Row(TrxId=1, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 5), DiffArrivalTime=-1, JoinType=2),
-            Row(TrxId=2, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 4), DiffArrivalTime=-2, JoinType=2),
-            Row(TrxId=3, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 6), DiffArrivalTime=0, JoinType=1),
+            Row(TrxId=1, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 5), DiffArrivalTime=-1, JoinType="a_late"),
+            Row(TrxId=2, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 4), DiffArrivalTime=-2, JoinType="a_late"),
+            Row(TrxId=3, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 6), DiffArrivalTime=0, JoinType="same_time"),
         ],
+        schema=JOIN_RESULT_SCHEMA,
     )
     actual = actual.select(expected.columns).orderBy("TrxId")
     assert_sparkframes_equal(actual, expected, sort_keys="TrxId")
 
 
-def test_inc_join_march_7(spark: SparkSession):
+def test_inner_join_march_7(spark: SparkSession):
     df_a, df_b = create_example_data(spark)
 
     settings = IncJoinSettings(
@@ -333,7 +343,7 @@ def test_inc_join_march_7(spark: SparkSession):
     actual = inc_join(
         df_a,
         df_b,
-        how="left",
+        how="inner",
         join_cols="TrxId",
         look_back_time=3,
         max_waiting_time=5,
@@ -347,14 +357,15 @@ def test_inc_join_march_7(spark: SparkSession):
 
     expected = spark.createDataFrame(
         [
-            Row(TrxId=4, RecDate=date(2025, 3, 7), RecDate_A=date(2025, 3, 7), RecDate_B=date(2025, 3, 7), DiffArrivalTime=0, JoinType=1),
+            Row(TrxId=4, RecDate=date(2025, 3, 7), RecDate_A=date(2025, 3, 7), RecDate_B=date(2025, 3, 7), DiffArrivalTime=0, JoinType="same_time"),
         ],
+        schema=JOIN_RESULT_SCHEMA,
     )
     actual = actual.select(expected.columns).orderBy("TrxId")
     assert_sparkframes_equal(actual, expected, sort_keys="TrxId")
 
 
-def test_inc_join_march_8(spark: SparkSession):
+def test_inner_join_march_8(spark: SparkSession):
     df_a, df_b = create_example_data(spark)
 
     settings = IncJoinSettings(
@@ -365,7 +376,7 @@ def test_inc_join_march_8(spark: SparkSession):
     actual = inc_join(
         df_a,
         df_b,
-        how="left",
+        how="inner",
         join_cols="TrxId",
         look_back_time=3,
         max_waiting_time=5,
@@ -379,14 +390,15 @@ def test_inc_join_march_8(spark: SparkSession):
 
     expected = spark.createDataFrame(
         [
-            Row(TrxId=7, RecDate=date(2025, 3, 8), RecDate_A=date(2025, 3, 8), RecDate_B=date(2025, 3, 6), DiffArrivalTime=-2, JoinType=2),
+            Row(TrxId=7, RecDate=date(2025, 3, 8), RecDate_A=date(2025, 3, 8), RecDate_B=date(2025, 3, 6), DiffArrivalTime=-2, JoinType="a_late"),
         ],
+        schema=JOIN_RESULT_SCHEMA,
     )
     actual = actual.select(expected.columns).orderBy("TrxId")
     assert_sparkframes_equal(actual, expected, sort_keys="TrxId")
 
 
-def test_inc_join_march_9(spark: SparkSession):
+def test_inner_join_march_9(spark: SparkSession):
     df_a, df_b = create_example_data(spark)
 
     settings = IncJoinSettings(
@@ -397,7 +409,7 @@ def test_inc_join_march_9(spark: SparkSession):
     actual = inc_join(
         df_a,
         df_b,
-        how="left",
+        how="inner",
         join_cols="TrxId",
         look_back_time=3,
         max_waiting_time=5,
@@ -414,7 +426,7 @@ def test_inc_join_march_9(spark: SparkSession):
     assert_sparkframes_equal(actual, expected, sort_keys="TrxId")
 
 
-def test_inc_join_march_10(spark: SparkSession):
+def test_inner_join_march_10(spark: SparkSession):
     df_a, df_b = create_example_data(spark)
 
     settings = IncJoinSettings(
@@ -425,7 +437,7 @@ def test_inc_join_march_10(spark: SparkSession):
     actual = inc_join(
         df_a,
         df_b,
-        how="left",
+        how="inner",
         join_cols="TrxId",
         look_back_time=3,
         max_waiting_time=5,
@@ -442,7 +454,7 @@ def test_inc_join_march_10(spark: SparkSession):
     assert_sparkframes_equal(actual, expected, sort_keys="TrxId")
 
 
-def test_inc_join_march_11(spark: SparkSession):
+def test_inner_join_march_11(spark: SparkSession):
     df_a, df_b = create_example_data(spark)
 
     settings = IncJoinSettings(
@@ -453,7 +465,7 @@ def test_inc_join_march_11(spark: SparkSession):
     actual = inc_join(
         df_a,
         df_b,
-        how="left",
+        how="inner",
         join_cols="TrxId",
         look_back_time=3,
         max_waiting_time=5,
@@ -469,8 +481,8 @@ def test_inc_join_march_11(spark: SparkSession):
     actual = actual.select(expected.columns).orderBy("TrxId")
     assert_sparkframes_equal(actual, expected, sort_keys="TrxId")
 
-
-def test_inc_join_march_12(spark: SparkSession):
+# no timed out records because we inner join.
+def test_inner_join_march_12(spark: SparkSession):
     df_a, df_b = create_example_data(spark)
 
     settings = IncJoinSettings(
@@ -481,7 +493,7 @@ def test_inc_join_march_12(spark: SparkSession):
     actual = inc_join(
         df_a,
         df_b,
-        how="left",
+        how="inner",
         join_cols="TrxId",
         look_back_time=3,
         max_waiting_time=5,
@@ -504,19 +516,8 @@ def test_inc_join_march_12(spark: SparkSession):
                 RecDate_B=date(2025, 3, 12),
                 DiffArrivalTime=5,
                 WaitingTime=None,
-                JoinType=3,
-            ),
-            Row(
-                TrxId=6,
-                RecDate=date(2025, 3, 12),
-                TrxId_A=6,
-                RecDate_A=date(2025, 3, 7),
-                TrxId_B=None,
-                RecDate_B=None,
-                DiffArrivalTime=None,
-                WaitingTime=5,
-                JoinType=4,
-            ),
+                JoinType="b_late",
+            )
         ],
         schema=actual.schema,
     )
@@ -524,7 +525,7 @@ def test_inc_join_march_12(spark: SparkSession):
     assert_sparkframes_equal(actual, expected, sort_keys="TrxId")
 
 
-def test_inc_join_march_13(spark: SparkSession):
+def test_inner_join_march_13(spark: SparkSession):
     df_a, df_b = create_example_data(spark)
 
     settings = IncJoinSettings(
@@ -535,7 +536,7 @@ def test_inc_join_march_13(spark: SparkSession):
     actual = inc_join(
         df_a,
         df_b,
-        how="left",
+        how="inner",
         join_cols="TrxId",
         look_back_time=3,
         max_waiting_time=5,
@@ -551,8 +552,8 @@ def test_inc_join_march_13(spark: SparkSession):
     actual = actual.select(expected.columns).orderBy("TrxId")
     assert_sparkframes_equal(actual, expected, sort_keys="TrxId")
 
-
-def test_inc_join_include_waiting_records(spark: SparkSession):
+#Because we inner join, there are no waiting records.
+def test_inner_join_include_waiting_records(spark: SparkSession):
     """Test that waiting records (not timed out) are included when include_waiting=True"""
     df_a, df_b = create_example_data(spark)
 
@@ -564,7 +565,7 @@ def test_inc_join_include_waiting_records(spark: SparkSession):
     actual = inc_join(
         df_a,
         df_b,
-        how="left",
+        how="inner",
         join_cols="TrxId",
         look_back_time=3,
         max_waiting_time=5,
@@ -580,20 +581,19 @@ def test_inc_join_include_waiting_records(spark: SparkSession):
 
     expected = spark.createDataFrame(
         [
-            Row(TrxId=1, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 5), DiffArrivalTime=-1, WaitingTime=None, JoinType=2),
-            Row(TrxId=2, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 4), DiffArrivalTime=-2, WaitingTime=None, JoinType=2),
-            Row(TrxId=3, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 6), DiffArrivalTime=0, WaitingTime=None, JoinType=1),
-            Row(TrxId=4, RecDate=date(2025, 3, 7), RecDate_A=date(2025, 3, 7), RecDate_B=date(2025, 3, 7), DiffArrivalTime=0, WaitingTime=None, JoinType=1),
-            Row(TrxId=5, RecDate=date(2025, 3, 9), RecDate_A=date(2025, 3, 7), RecDate_B=None, DiffArrivalTime=None, WaitingTime=2, JoinType=5),
-            Row(TrxId=6, RecDate=date(2025, 3, 9), RecDate_A=date(2025, 3, 7), RecDate_B=None, DiffArrivalTime=None, WaitingTime=2, JoinType=5),
-            Row(TrxId=7, RecDate=date(2025, 3, 8), RecDate_A=date(2025, 3, 8), RecDate_B=date(2025, 3, 6), DiffArrivalTime=-2, WaitingTime=None, JoinType=2),
+            Row(TrxId=1, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 5), DiffArrivalTime=-1, WaitingTime=None, JoinType="a_late"),
+            Row(TrxId=2, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 4), DiffArrivalTime=-2, WaitingTime=None, JoinType="a_late"),
+            Row(TrxId=3, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 6), DiffArrivalTime=0, WaitingTime=None, JoinType="same_time"),
+            Row(TrxId=4, RecDate=date(2025, 3, 7), RecDate_A=date(2025, 3, 7), RecDate_B=date(2025, 3, 7), DiffArrivalTime=0, WaitingTime=None, JoinType="same_time"),
+            Row(TrxId=7, RecDate=date(2025, 3, 8), RecDate_A=date(2025, 3, 8), RecDate_B=date(2025, 3, 6), DiffArrivalTime=-2, WaitingTime=None, JoinType="a_late"),
         ],
+        schema=JOIN_RESULT_SCHEMA_WITH_WAITING,
     )
     actual = actual.select(expected.columns).orderBy("TrxId")
     assert_sparkframes_equal(actual, expected, sort_keys="TrxId")
 
-
-def test_inc_join_waiting_vs_timed_out_records(spark: SparkSession):
+# because we inner join, there are no timed out records.
+def test_inner_join_waiting_vs_timed_out_records(spark: SparkSession):
     """Test distinction between waiting records and timed out records when include_waiting=True"""
     df_a, df_b = create_example_data(spark)
 
@@ -605,7 +605,7 @@ def test_inc_join_waiting_vs_timed_out_records(spark: SparkSession):
     actual = inc_join(
         df_a,
         df_b,
-        how="left",
+        how="inner",
         join_cols="TrxId",
         look_back_time=3,
         max_waiting_time=5,
@@ -621,14 +621,14 @@ def test_inc_join_waiting_vs_timed_out_records(spark: SparkSession):
 
     expected = spark.createDataFrame(
         [
-            Row(TrxId=1, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 5), DiffArrivalTime=-1, WaitingTime=None, JoinType=2),
-            Row(TrxId=2, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 4), DiffArrivalTime=-2, WaitingTime=None, JoinType=2),
-            Row(TrxId=3, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 6), DiffArrivalTime=0, WaitingTime=None, JoinType=1),
-            Row(TrxId=4, RecDate=date(2025, 3, 7), RecDate_A=date(2025, 3, 7), RecDate_B=date(2025, 3, 7), DiffArrivalTime=0, WaitingTime=None, JoinType=1),
-            Row(TrxId=5, RecDate=date(2025, 3, 12), RecDate_A=date(2025, 3, 7), RecDate_B=date(2025, 3, 12), DiffArrivalTime=5, WaitingTime=None, JoinType=3),
-            Row(TrxId=6, RecDate=date(2025, 3, 12), RecDate_A=date(2025, 3, 7), RecDate_B=None, DiffArrivalTime=None, WaitingTime=5, JoinType=4),
-            Row(TrxId=7, RecDate=date(2025, 3, 8), RecDate_A=date(2025, 3, 8), RecDate_B=date(2025, 3, 6), DiffArrivalTime=-2, WaitingTime=None, JoinType=2),
+            Row(TrxId=1, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 5), DiffArrivalTime=-1, WaitingTime=None, JoinType="a_late"),
+            Row(TrxId=2, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 4), DiffArrivalTime=-2, WaitingTime=None, JoinType="a_late"),
+            Row(TrxId=3, RecDate=date(2025, 3, 6), RecDate_A=date(2025, 3, 6), RecDate_B=date(2025, 3, 6), DiffArrivalTime=0, WaitingTime=None, JoinType="same_time"),
+            Row(TrxId=4, RecDate=date(2025, 3, 7), RecDate_A=date(2025, 3, 7), RecDate_B=date(2025, 3, 7), DiffArrivalTime=0, WaitingTime=None, JoinType="same_time"),
+            Row(TrxId=5, RecDate=date(2025, 3, 12), RecDate_A=date(2025, 3, 7), RecDate_B=date(2025, 3, 12), DiffArrivalTime=5, WaitingTime=None, JoinType="b_late"),
+            Row(TrxId=7, RecDate=date(2025, 3, 8), RecDate_A=date(2025, 3, 8), RecDate_B=date(2025, 3, 6), DiffArrivalTime=-2, WaitingTime=None, JoinType="a_late"),
         ],
+        schema=JOIN_RESULT_SCHEMA_WITH_WAITING,
     )
     actual = actual.select(expected.columns).orderBy("TrxId")
     assert_sparkframes_equal(actual, expected, sort_keys="TrxId")
