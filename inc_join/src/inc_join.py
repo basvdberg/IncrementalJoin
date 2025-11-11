@@ -416,9 +416,6 @@ def inc_join(
             & (F.col(settings.inc_col_name) <= F.lit(output_window_end_dt))
         )
 
-    if not settings.include_waiting and "WaitingTime" in result.columns:
-        result = result.drop("WaitingTime")
-
     def _resolve_output_columns() -> list[str]:
         """
         Resolve the settings.output_select tokens into concrete column names.
