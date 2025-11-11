@@ -3,10 +3,6 @@
     {
       "name": "inc_join",
       "path": "inc_join"
-    },
-    {
-      "name": "time_utils",
-      "path": "time_utils"
     }
   ],
   "settings": {
