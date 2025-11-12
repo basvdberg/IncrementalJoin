@@ -94,10 +94,8 @@ def inc_join(
     Args:
         df_a (DataFrame): The first dataset (typically the primary dataset).
         df_b (DataFrame): The second dataset (typically the secondary dataset to join with).
-        how (str, optional): Type of join. Must be one of: 'inner', 'cross', 'outer', 'full',
-                             'fullouter', 'full_outer', 'left', 'leftouter', 'left_outer',
-                             'right', 'rightouter', 'right_outer', 'semi', 'leftsemi',
-                             'left_semi', 'anti', 'leftanti', 'left_anti'. Defaults to 'inner'.
+        how (str, optional): Type of join. Must be one of: 'left', 'inner', 'full_outer', 'left_anti'. Defaults to 'inner'.
+    
         join_cols (Union[str, list], optional): Column(s) to join on. Should exist in both
                                                  datasets. Either join_cols or join_cond must be provided.
         join_cond (Optional[Union[str, Column]], optional): Extra join condition as a SQL expression string
@@ -364,15 +362,17 @@ def inc_join(
         F.col("WaitingTime") == F.lit(max_waiting_time)
     )
     waiting_condition = inc_col_b.isNull() & (
-        F.col("WaitingTime") < F.lit(max_waiting_time)
+        (F.col("WaitingTime") < F.lit(max_waiting_time))
+        & (F.lit(max_waiting_time) > F.lit(0)) # if max_waiting_time is 0 then records are timed out immediately ( no waiting).
     )
+
     scenario_col = (
         F.when(timed_out_condition, F.lit("a_timed_out"))
         .when(waiting_condition, F.lit("a_waiting"))
         .when(F.col("DiffArrivalTime") == 0, F.lit("same_time"))
         .when(F.col("DiffArrivalTime") < 0, F.lit("a_late"))
         .when(F.col("DiffArrivalTime") > 0, F.lit("b_late"))
-        .otherwise(F.lit(None))
+        .otherwise(F.lit("not_matched"))
     )
     result = result.withColumn("JoinType", scenario_col)
 
@@ -380,7 +380,7 @@ def inc_join(
     # because the output contains only matched records or timed out records.
     # but you can override this by behaviour via the include_waiting setting.
     if not settings.include_waiting:
-        filter_expr = F.col("WaitingTime").isNull() | (F.col("JoinType") == F.lit(4))
+        filter_expr = F.col("WaitingTime").isNull() | (F.col("JoinType") == F.lit("a_timed_out"))
         log.debug(
             "Filter waiting records. E.g. having a waiting time and not being timed out."
         )
