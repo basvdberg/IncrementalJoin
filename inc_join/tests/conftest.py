@@ -1,107 +1,104 @@
+from __future__ import annotations
+
 import logging
-import sys
-from pathlib import Path
+from typing import Iterable
 
 import pytest
-
-SRC_PATH = Path(__file__).resolve().parents[1] / "src"
-if str(SRC_PATH) not in sys.path:
-    sys.path.insert(0, str(SRC_PATH))
+from pyspark.sql import SparkSession
 
 
-class GreyDebugFormatter(logging.Formatter):
-    """Custom formatter that colors DEBUG messages light grey."""
-
-    # ANSI color codes
-    LIGHT_GREY = "\033[2;37m"  # Dimmed light grey (softer, more subtle)
-    RESET = "\033[0m"
-
-    def format(self, record):
-        # Format the message first using the parent formatter
-        formatted_message = super().format(record)
-        # Color DEBUG messages light grey by wrapping the entire formatted message
-        if record.levelno == logging.DEBUG:
-            return f"{self.LIGHT_GREY}{formatted_message}{self.RESET}"
-        return formatted_message
+RESET = "\033[0m"
+COLOR_ERROR = "\033[31m"
+COLOR_CODE = "\033[90m"
+COLOR_TEST = "\033[33m"
 
 
-class YellowInfoFormatter(logging.Formatter):
-    """Custom formatter that colors INFO messages yellow."""
-
-    YELLOW = "\033[33m"
-    RESET = "\033[0m"
-
-    def format(self, record):
-        formatted_message = super().format(record)
-        if record.levelno == logging.INFO:
-            return f"{self.YELLOW}{formatted_message}{self.RESET}"
-        return formatted_message
+def _enable_windows_ansi_colors() -> None:
+    try:
+        from colorama import just_fix_windows_console  # type: ignore
+    except ImportError:  # pragma: no cover - optional dependency
+        return
+    just_fix_windows_console()
 
 
-# Configure logging for tests
-# Set root logger to WARNING to suppress noisy DEBUG logs from other modules
-root_logger = logging.getLogger()
-root_logger.setLevel(logging.WARNING)
+class ColoredFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        message = super().format(record)
+        color = ""
+        if record.levelno >= logging.ERROR:
+            color = COLOR_ERROR
+        elif record.levelno == logging.DEBUG:
+            color = COLOR_CODE
+        if color:
+            return f"{color}{message}{RESET}"
+        return message
 
-# Create a console handler with the custom formatter
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.WARNING)
-console_handler.setFormatter(
-    GreyDebugFormatter(
-        fmt="%(asctime)s %(levelname)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+
+def _configure_module_logger() -> None:
+    logger = logging.getLogger("src.inc_join")
+    logger.setLevel(logging.DEBUG)
+    logger.propagate = False
+
+    handler = logging.StreamHandler()
+    handler.setFormatter(
+        ColoredFormatter("%(asctime)s %(levelname)s [%(name)s] %(message)s")
     )
-)
 
-# Add handler to root logger if it doesn't already have one
-if not root_logger.handlers:
-    root_logger.addHandler(console_handler)
-
-# Enable debug logging ONLY for inc_join module
-# The module name is 'src.inc_join' when imported via the src package
-inc_join_logger = logging.getLogger("src.inc_join")
-inc_join_logger.setLevel(logging.DEBUG)
-# Create a separate handler for DEBUG messages with the grey formatter
-debug_handler = logging.StreamHandler()
-debug_handler.setLevel(logging.DEBUG)
-debug_handler.setFormatter(
-    GreyDebugFormatter(
-        fmt="%(asctime)s %(levelname)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-    )
-)
-inc_join_logger.addHandler(debug_handler)
-inc_join_logger.propagate = (
-    False  # Prevent propagation to root logger to avoid duplicate messages
-)
-
-# Enable INFO logging for test module to show connection messages
-logging.getLogger("tests.test_inc_join").setLevel(logging.INFO)
-logging.getLogger("tests").setLevel(logging.INFO)
-
-# Create a handler for test INFO logs with yellow coloring
-tests_info_handler = logging.StreamHandler()
-tests_info_handler.setLevel(logging.INFO)
-tests_info_handler.setFormatter(
-    YellowInfoFormatter(
-        fmt="%(asctime)s %(levelname)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-    )
-)
-tests_logger = logging.getLogger("tests")
-if not any(
-    isinstance(handler.formatter, YellowInfoFormatter)
-    for handler in tests_logger.handlers
-    if handler.formatter
-):
-    tests_logger.addHandler(tests_info_handler)
-tests_logger.propagate = False
-
-# Suppress DEBUG logs from noisy third-party loggers
-logging.getLogger("py4j").setLevel(logging.WARNING)
-logging.getLogger("py4j.clientserver").setLevel(logging.WARNING)
-logging.getLogger("py4j.java_gateway").setLevel(logging.WARNING)
+    _remove_existing_handlers(logger.handlers, ColoredFormatter)
+    logger.addHandler(handler)
 
 
-@pytest.fixture(autouse=True)
-def log_test_name(request):
-    logger = logging.getLogger("tests")
-    logger.info("Running test: %s", request.node.name)
+def _remove_existing_handlers(
+    handlers: Iterable[logging.Handler], formatter_type: type[logging.Formatter]
+) -> None:
+    for handler in list(handlers):
+        fmt = getattr(handler, "formatter", None)
+        if isinstance(fmt, formatter_type):
+            handler.close()
+            handlers.remove(handler)
+
+
+def pytest_configure(config: pytest.Config) -> None:  # noqa: D401 - pytest hook
+    """Pytest hook to configure logging colour output."""
+    _enable_windows_ansi_colors()
+    _configure_module_logger()
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_protocol(item: pytest.Item, nextitem: pytest.Item | None):
+    terminal_reporter = item.config.pluginmanager.get_plugin("terminalreporter")
+    if terminal_reporter is not None:
+        terminal_reporter.write_line(f"{COLOR_TEST}{item.name}{RESET}")
     yield
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo):
+    outcome = yield
+    report = outcome.get_result()
+    if report.failed and hasattr(report, "longreprtext"):
+        terminal_reporter = item.config.pluginmanager.get_plugin("terminalreporter")
+        if terminal_reporter is None:
+            return
+        terminal_reporter.write_line("")
+        for line in report.longreprtext.splitlines():
+            stripped = line.lstrip()
+            if stripped.startswith("E"):
+                terminal_reporter.write_line(f"{COLOR_ERROR}{line}{RESET}")
+            elif stripped.startswith(">"):
+                terminal_reporter.write_line(f"{COLOR_CODE}{line}{RESET}")
+            else:
+                terminal_reporter.write_line(line)
+
+
+@pytest.fixture(scope="session")
+def spark() -> SparkSession:
+    session = (
+        SparkSession.builder.master("local[1]")
+        .appName("inc_join_tests")
+        .config("spark.ui.showConsoleProgress", "false")
+        .getOrCreate()
+    )
+    session.conf.set("spark.sql.session.timeZone", "Europe/Amsterdam")
+    yield session
+    session.stop()

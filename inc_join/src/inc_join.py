@@ -38,10 +38,9 @@ class IncJoinSettings:
             - join_cols: the join columns restored to their original names.
             - inc_col: the final incremental column (settings.inc_col_name).
             - df_a_cols / df_b_cols: all columns originating from df_a / df_b (after renaming to avoid collisions).
-            - inc_col_a / inc_col_b: the incremental columns originating from df_a / df_b.
             - DiffArrivalTime / WaitingTime / JoinType: the derived columns produced by inc_join.
             You can also provide explicit column names. Defaults to
-            "join_cols, inc_col, df_a_cols, df_b_cols, inc_col_a, inc_col_b, DiffArrivalTime, WaitingTime, JoinType".
+            "join_cols, inc_col, df_a_cols, df_b_cols, DiffArrivalTime, WaitingTime, JoinType".
     """
 
     alias_a: str = "A"
@@ -50,10 +49,7 @@ class IncJoinSettings:
     inc_col_name: str = "RecordDT"
     time_uom: str = "day"
     enforce_sliding_join_window: bool = True
-    output_select: str = (
-        "join_cols, inc_col, df_a_cols, df_b_cols, inc_col_a, inc_col_b, "
-        "DiffArrivalTime, WaitingTime, JoinType"
-    )
+    output_select: str = "join_cols, inc_col, df_a_cols, df_b_cols, DiffArrivalTime, WaitingTime, JoinType"
 
     def __post_init__(self) -> None:
         if self.time_uom not in ["day"]:
@@ -61,6 +57,91 @@ class IncJoinSettings:
                 "Invalid time unit of measure. Currently only 'day' uom is supported."
             )
 
+def check_inc_join_params(
+    join_cols: Union[str, list, None],
+    join_cond: Optional[Union[str, Column]],
+    look_back_time: Optional[int],
+    max_waiting_time: Optional[int],
+    output_window_start_dt: Optional[datetime.datetime],
+    output_window_end_dt: Optional[datetime.datetime],
+    other_settings: Optional[IncJoinSettings],
+    how: str,
+) -> tuple[IncJoinSettings, list[str], datetime.datetime, Optional[Union[str, Column]]]:
+    """Validate and normalize the high-level configuration arguments passed to inc_join."""
+    # Validate that look_back_time and max_waiting_time are non-negative
+    if look_back_time is None or look_back_time < 0:
+        raise ValueError("look_back_time must be a non-negative integer (>= 0)")
+    if max_waiting_time is None or max_waiting_time < 0:
+        raise ValueError("max_waiting_time must be a non-negative integer (>= 0)")
+    # if no end of output window is specified, we take today as end date because the inc_col value cannot be in the future.
+    if output_window_end_dt is None:
+        output_window_end_dt = datetime.datetime.now()
+        log.debug(
+            "Output window end not specified; defaulting to today %s",
+            output_window_end_dt,
+        )
+
+    settings = other_settings or IncJoinSettings()
+
+    if join_cols:
+        join_cols_list = (
+            [join_cols] if isinstance(join_cols, str) else [str(c) for c in join_cols]
+        )
+    else:
+        join_cols_list = []
+
+    if not join_cols_list and join_cond is None:
+        raise ValueError("Either join_cols or join_cond must be provided.")
+
+    if join_cond is not None and not isinstance(join_cond, (str, Column)):
+        raise TypeError("join_cond must be a SQL string or a pyspark.sql.Column")
+
+    if log.isEnabledFor(logging.DEBUG):
+        join_cond_repr = None
+        if join_cond is not None:
+            join_cond_repr = join_cond if isinstance(join_cond, str) else str(join_cond)
+        log.debug(
+            "inc_join parameters | how=%s join_cols=%s join_cond=%s look_back=%s max_wait=%s "
+            "output_window=(%s, %s) include_waiting=%s inc_col=%s aliases=(%s,%s) time_uom=%s "
+            "enforce_sliding_join_window=%s",
+            how,
+            join_cols_list if join_cols_list else None,
+            join_cond_repr,
+            look_back_time,
+            max_waiting_time,
+            output_window_start_dt,
+            output_window_end_dt,
+            settings.include_waiting,
+            settings.inc_col_name,
+            settings.alias_a,
+            settings.alias_b,
+            settings.time_uom,
+            settings.enforce_sliding_join_window,
+        )
+
+    output_columns = [
+        token.strip()
+        for token in (settings.output_select or "").split(",")
+        if token.strip()
+    ]
+
+    return settings, join_cols_list, output_window_end_dt, join_cond, output_columns
+
+def rename_columns(
+    df: DataFrame, rename_map: dict[str, str]
+) -> DataFrame:
+    """Rename columns in df according to rename_map, checking for collisions."""
+    for old_name, new_name in rename_map.items():
+        if new_name in df.columns:
+            raise ValueError(
+                f"Column rename collision: Cannot rename '{old_name}' to '{new_name}' because "
+                f"'{new_name}' already exists. Adjust aliases or rename columns before calling inc_join."
+            )
+
+    result = df
+    for old_name, new_name in rename_map.items():
+        result = result.withColumnRenamed(old_name, new_name)
+    return result
 
 def inc_join(
     df_a: DataFrame,
@@ -154,87 +235,61 @@ def inc_join(
                 - "a_timed_out": No match found in df_b after max_waiting_time (B.[inc_col_name] is None).
                 - "a_waiting": No match found in df_b yet, but WaitingTime < max_waiting_time (only included when include_waiting=True).
     """
-    # Validate that look_back_time and max_waiting_time are non-negative
-    if look_back_time is None or look_back_time < 0:
-        raise ValueError("look_back_time must be a non-negative integer (>= 0)")
-    if max_waiting_time is None or max_waiting_time < 0:
-        raise ValueError("max_waiting_time must be a non-negative integer (>= 0)")
-    # if no end of output window is specified, we take today as end date because 
-    # the inc_col value cannot be in the future.
-    if output_window_end_dt is None:
-        output_window_end_dt = datetime.datetime.now()
-        log.debug(
-            "Output window end not specified; defaulting to today %s",
-            output_window_end_dt,
-        )
-    if other_settings is None:
-        settings = IncJoinSettings()  # use defaults
-    else:
-        settings = other_settings
+    #step 1: validate the parameters
+    (
+        settings,
+        join_cols_list,
+        output_window_end_dt,
+        join_cond,
+        output_columns,
+    ) = check_inc_join_params(
+        join_cols=join_cols,
+        join_cond=join_cond,
+        look_back_time=look_back_time,
+        max_waiting_time=max_waiting_time,
+        output_window_start_dt=output_window_start_dt,
+        output_window_end_dt=output_window_end_dt,
+        other_settings=other_settings,
+        how=how,
+    )
 
-    join_cols_list: list[str] = []
-    if join_cols:
-        join_cols_list = [join_cols] if isinstance(join_cols, str) else list[str](join_cols)
-
-    if log.isEnabledFor(logging.DEBUG):
-        join_cond_repr = None
-        if join_cond is not None:
-            join_cond_repr = join_cond if isinstance(join_cond, str) else str(join_cond)
-        log.debug(
-            "inc_join parameters | how=%s join_cols=%s join_cond=%s look_back=%s max_wait=%s "
-            "output_window=(%s, %s) include_waiting=%s inc_col=%s aliases=(%s,%s) time_uom=%s "
-            "enforce_sliding_join_window=%s",
-            how,
-            join_cols_list if join_cols_list else None,
-            join_cond_repr,
-            look_back_time,
-            max_waiting_time,
-            output_window_start_dt,
-            output_window_end_dt,
-            settings.include_waiting,
-            settings.inc_col_name,
-            settings.alias_a,
-            settings.alias_b,
-            settings.time_uom,
-            settings.enforce_sliding_join_window,
-        )
-
+    #step 2: make sure that column names are unique by adding the dataframe alias as a suffix to the common column names.
+    # join_cols and inc_col_name should be in the common columns.
+    required_common_cols = {settings.inc_col_name}
+    required_common_cols.update(join_cols_list)
     common_cols = set[str](df_a.columns) & set[str](df_b.columns)
-    if common_cols:
-        log.debug(f"Common columns to rename: {common_cols}")
-    else:
-        log.debug("No common columns detected between df_a and df_b")
+    missing_common = required_common_cols - common_cols
+    if missing_common:
+        raise ValueError(
+            "join_cols and inc_col_name must be present in both dataframes. "
+            f"Missing columns: {sorted(missing_common)}"
+        )
+    log.debug(f"Common columns to rename: {common_cols}")
 
-    # Helper function to rename columns with collision check
-    def rename_columns(df: DataFrame, rename_map: dict[str, str], df_name: str) -> DataFrame:
-        """Rename columns in df according to rename_map, checking for collisions."""
-        for old_name, new_name in rename_map.items():
-            if new_name in df.columns:
-                raise ValueError(
-                    f"Column rename collision: Cannot rename '{old_name}' to '{new_name}' because "
-                    f"'{new_name}' already exists in {df_name}. Adjust aliases or rename columns before calling inc_join."
-                )
-
-        result = df
-        for old_name, new_name in rename_map.items():
-            result = result.withColumnRenamed(old_name, new_name)
-        return result
-
-    # Create renaming maps and perform renames
     rename_map_a = {col: f"{col}_{settings.alias_a}" for col in common_cols}
     rename_map_b = {col: f"{col}_{settings.alias_b}" for col in common_cols}
 
-    df_a_renamed = rename_columns(df_a, rename_map_a, "df_a")
-    df_b_renamed = rename_columns(df_b, rename_map_b, "df_b")
+    a = rename_columns(df_a, rename_map_a).alias(settings.alias_a)
+    b = rename_columns(df_b, rename_map_b).alias(settings.alias_b)
+    a_cols = a.columns
+    b_cols = b.columns
+    inc_col_a_name = f"{settings.inc_col_name}_{settings.alias_a}"
+    inc_col_b_name = f"{settings.inc_col_name}_{settings.alias_b}"
+    inc_col_a = a[inc_col_a_name]
+    inc_col_b = b[inc_col_b_name]
 
-    # Create column name mappings for later use (all columns with renamed ones mapped)
-    a_col_names = {col: rename_map_a.get(col, col) for col in df_a.columns}
-    b_col_names = {col: rename_map_b.get(col, col) for col in df_b.columns}
+    #step 3: Truncate datetime to date when time_uom is 'day' for proper day-based comparisons
+    if settings.time_uom == "day":
+        a_col_type = a.schema[inc_col_a_name].dataType
+        b_col_type = b.schema[inc_col_b_name].dataType
 
-    a = df_a_renamed.alias(settings.alias_a)
-    b = df_b_renamed.alias(settings.alias_b)
+        if isinstance(a_col_type, TimestampType):
+            inc_col_a = F.to_date(inc_col_a)
+        if isinstance(b_col_type, TimestampType):
+            inc_col_b = F.to_date(inc_col_b)
 
-    # Apply output window filters on df_a
+    #step 4: Apply output window filters
+    filter_a=[]; filter_b=[]
     if output_window_start_dt is not None:
         # ow = output window
         # A is element of ow left extended with max_waiting_time
@@ -242,12 +297,7 @@ def inc_join(
             output_window_start_dt
             - datetime.timedelta(days=max_waiting_time)
         )
-        filter_a = a[a_col_names[settings.inc_col_name]] >= F.lit(
-            max_wait_extended_start
-        )
-        filter_a = filter_a & (
-            a[a_col_names[settings.inc_col_name]] <= F.lit(output_window_end_dt)
-        )
+        filter_a = inc_col_a >= F.lit(max_wait_extended_start)
 
         # B is element of ow left extended with look_back_time ( for A is late scenario)
         # B is element of ow left extended with look_back_time + max_waiting_time( for A is timed out scenario)
@@ -259,37 +309,34 @@ def inc_join(
             - datetime.timedelta(days=look_back_time) 
             - datetime.timedelta(days=max_waiting_time)
         )
-        filter_b = b[b_col_names[settings.inc_col_name]] >= F.lit(lb_extended_start)
-        filter_b = filter_b & (
-            b[b_col_names[settings.inc_col_name]] <= F.lit(output_window_end_dt)
-        )
+        filter_b = inc_col_b >= F.lit(lb_extended_start)
 
-        log.debug(
-            "Applying filter on df_a: %s BETWEEN %s AND %s",
-            a_col_names[settings.inc_col_name],
-            max_wait_extended_start,
-            output_window_end_dt,
-        )
-        a = a.filter(filter_a)
-        log.debug(
-            "Applying filter on df_b: %s BETWEEN %s AND %s",
-            b_col_names[settings.inc_col_name],
-            lb_extended_start,
-            output_window_end_dt,
-        )
-        b = b.filter(filter_b)
+    filter_a = filter_a & (
+        inc_col_a <= F.lit(output_window_end_dt)
+    )
 
-    # Build join expressions on join_cols and join_cond
+    filter_b = filter_b & (
+        inc_col_b <= F.lit(output_window_end_dt)
+    )
+
+    log.debug(
+        f"Applying filter on df_a: {filter_a}"
+    )
+    a = a.filter(filter_a)
+    log.debug(
+        f"Applying filter on df_b: {filter_b}"
+    )
+    b = b.filter(filter_b)
+
+    # step 5: Build join expressions on join_cols and join_cond
+    # it is already checked that join_cols are present in both dataframes.
     join_exprs = []
-    join_col_exprs = []
     if join_cols_list:
-        log.debug(f"Join columns: {join_cols_list}")
         for c in join_cols_list:
-            if c not in a_col_names or c not in b_col_names:
-                raise ValueError(f"Join column '{c}' must exist in both dataframes.")
-            expr = a[a_col_names[c]] == b[b_col_names[c]]
+            join_col_a = f"{c}_{settings.alias_a}"
+            join_col_b = f"{c}_{settings.alias_b}"
+            expr = a[join_col_a] == b[join_col_b]
             join_exprs.append(expr)
-            join_col_exprs.append(expr)
     else:
         log.debug("No join columns supplied; relying on join_cond for join logic")
     if join_cond is not None:
@@ -301,26 +348,9 @@ def inc_join(
         else:
             raise TypeError("join_cond must be a SQL string or a pyspark.sql.Column")
 
-    # Apply sliding join window (optional):
-    # If enforced, B.[inc_col_name] must be in [A.[inc_col_name] - look_back_time, A.[inc_col_name] + max_waiting_time]
-    inc_col_a_raw = a[a_col_names[settings.inc_col_name]]
-    inc_col_b_raw = b[b_col_names[settings.inc_col_name]]
+    log.debug(f"Join expressions: {join_exprs if join_exprs else 'None'}")
 
-    inc_col_a = inc_col_a_raw
-    inc_col_b = inc_col_b_raw
-
-    # Truncate datetime to date when time_uom is 'day' for proper day-based comparisons
-    if settings.time_uom == "day":
-        # Check if columns are timestamp/datetime types by inspecting schema
-        # F.to_date() is safe to use on both date and timestamp types
-        a_col_type = df_a.schema[settings.inc_col_name].dataType
-        b_col_type = df_b.schema[settings.inc_col_name].dataType
-
-        if isinstance(a_col_type, TimestampType):
-            inc_col_a = F.to_date(inc_col_a)
-        if isinstance(b_col_type, TimestampType):
-            inc_col_b = F.to_date(inc_col_b)
-
+    # step 6: Apply sliding join window (optional):
     if settings.enforce_sliding_join_window:
         log.debug(f"Sliding window: [-{look_back_time}..+{max_waiting_time}]")
         # Lower bound: B.[inc_col_name] >= A.[inc_col_name] - look_back_time
@@ -328,36 +358,49 @@ def inc_join(
         # Upper bound: B.[inc_col_name] <= A.[inc_col_name] + max_waiting_time
         join_exprs.append(inc_col_b <= F.date_add(inc_col_a, max_waiting_time))
 
-    if join_col_exprs:
-        log.debug("Join expressions (join_cols): %s", join_col_exprs)
-    else:
-        log.debug("Join expressions (join_cols): None")
-
-    if not join_exprs:
-        raise ValueError("Either join_cols or join_cond must be provided.")
-
+    # step 7: Invoke the join 
     final_join_condition = reduce(and_, join_exprs)
     result = a.join(b, final_join_condition, how)
+    
+    # For left_anti and left_semi joins, B columns are not in the result
+    # Add them as null columns so downstream logic can work
+    b_schema = {field.name: field.dataType for field in b.schema}
+    for col_name in b_cols:
+        if col_name not in result.columns:
+            result = result.withColumn(
+                col_name, F.lit(None).cast(b_schema[col_name])
+            )
+    
+    # Get column references after ensuring they exist
+    inc_col_a = F.col(inc_col_a_name)
+    inc_col_b = F.col(inc_col_b_name)
 
+    # step 8: Restore one of the original join columns, give preference to df_a.join_col.  
     if join_cols_list:
         for c in join_cols_list:
+            join_col_a = f"{c}_{settings.alias_a}"
+            join_col_b = f"{c}_{settings.alias_b}"
             result = result.withColumn(
-                c, F.coalesce(F.col(a_col_names[c]), F.col(b_col_names[c]))
+                c,
+                F.coalesce(
+                    F.col(join_col_a),
+                    F.col(join_col_b),
+                ),
             )
 
-    # Compute DiffArrivalTime: B.[inc_col_name] - A.[inc_col_name] in days
+    # step 9: Calculate metric DiffArrivalTime: B.[inc_col_name] - A.[inc_col_name] in days
     result = result.withColumn(
         "DiffArrivalTime",
         F.when(inc_col_b.isNotNull(), F.datediff(inc_col_b, inc_col_a)).otherwise(None),
     )
-    # calculate the waiting time for records in A that do not have a match in B
+    # step 10: Calculate metric waiting time for records in A that do not have a match in B
     waiting_time = F.least(
         F.lit(max_waiting_time),
         F.greatest(F.lit(0), F.datediff(F.lit(output_window_end_dt), inc_col_a)),
     )
     result = result.withColumn("WaitingTime", F.when(inc_col_b.isNull(), waiting_time))
 
-    # classify each record into the numbered join scenarios
+    # step 11: define join_type
     timed_out_condition = inc_col_b.isNull() & (
         F.col("WaitingTime") == F.lit(max_waiting_time)
     )
@@ -365,8 +408,7 @@ def inc_join(
         (F.col("WaitingTime") < F.lit(max_waiting_time))
         & (F.lit(max_waiting_time) > F.lit(0)) # if max_waiting_time is 0 then records are timed out immediately ( no waiting).
     )
-
-    scenario_col = (
+    join_type = (
         F.when(timed_out_condition, F.lit("a_timed_out"))
         .when(waiting_condition, F.lit("a_waiting"))
         .when(F.col("DiffArrivalTime") == 0, F.lit("same_time"))
@@ -374,8 +416,9 @@ def inc_join(
         .when(F.col("DiffArrivalTime") > 0, F.lit("b_late"))
         .otherwise(F.lit("not_matched"))
     )
-    result = result.withColumn("JoinType", scenario_col)
+    result = result.withColumn("JoinType", join_type)
 
+    # step 12: filter out waiting records by default
     # By default, waiting records are not included in the output,
     # because the output contains only matched records or timed out records.
     # but you can override this by behaviour via the include_waiting setting.
@@ -386,81 +429,49 @@ def inc_join(
         )
         result = result.filter(filter_expr)
 
-    # Compute final inc_col_name
+    # step 13: Compute final inc_col_name
     # When matched: max(A.[inc_col_name], B.[inc_col_name])
     # When timed out: A.[inc_col_name] + max_waiting_time
     result = result.withColumn(
         settings.inc_col_name,
         F.when(
-            inc_col_b.isNotNull(), F.greatest(inc_col_a_raw, inc_col_b_raw)
-        ).otherwise(F.date_add(inc_col_a_raw, F.col("WaitingTime"))),
+            inc_col_b.isNotNull(), F.greatest(inc_col_a, inc_col_b)
+        ).otherwise(F.date_add(inc_col_a, F.col("WaitingTime"))),
     )
     log.debug(
         "Calculating %s as greatest(%s, %s) when matched, otherwise date_add(%s, WaitingTime)",
         settings.inc_col_name,
-        a_col_names[settings.inc_col_name],
-        b_col_names[settings.inc_col_name],
-        a_col_names[settings.inc_col_name],
+        inc_col_a_name,
+        inc_col_b_name,
+        inc_col_a_name,
     )
 
+    # step 14: filter on output window, only keep records that are within the output window
+    # This will remove the records in the lookback + waiting period. 
     if output_window_start_dt is not None:
         result = result.filter(
             (F.col(settings.inc_col_name) >= F.lit(output_window_start_dt))
             & (F.col(settings.inc_col_name) <= F.lit(output_window_end_dt))
         )
 
-    def _resolve_output_columns() -> list[str]:
-        """
-        Resolve the settings.output_select tokens into concrete column names.
-        """
-        tokens = [
-            token.strip()
-            for token in (settings.output_select or "").split(",")
-            if token.strip()
-        ]
-        if not tokens:
-            return result.columns
-
-        resolved: list[str] = []
-        existing_columns = set(result.columns)
-
-        def append_column(col_name: str) -> None:
-            if col_name not in existing_columns:
-                log.debug("Skipping missing column '%s' from output_select", col_name)
-                return
-            if col_name not in resolved:
-                resolved.append(col_name)
-
-        for token in tokens:
-            key = token.lower()
-            if key == "join_cols":
-                for c in join_cols_list:
-                    append_column(c)
-            elif key == "inc_col":
-                append_column(settings.inc_col_name)
-            elif key == "df_a_cols":
-                for original_col in df_a.columns:
-                    append_column(a_col_names[original_col])
-            elif key == "df_b_cols":
-                for original_col in df_b.columns:
-                    append_column(b_col_names[original_col])
-            elif key == "inc_col_a":
-                append_column(a_col_names[settings.inc_col_name])
-            elif key == "inc_col_b":
-                append_column(b_col_names[settings.inc_col_name])
-            elif key in {"diffarrivaltimedays", "diffarrivaltime"}:
-                append_column("DiffArrivalTime")
-            elif key == "waitingtime":
-                append_column("WaitingTime")
-            elif key in {"incjoinscenario", "jointype"}:
-                append_column("JoinType")
-            else:
-                append_column(token)
-
-        return resolved if resolved else result.columns
-
-    output_columns = _resolve_output_columns()
-    result = result.select(*output_columns)
+    # step 15: select output columns
+    result_cols = []
+    for output_col in output_columns:
+        key = output_col.lower()
+        if key == "join_cols":
+            for c in join_cols_list:
+               result_cols.append(c)
+        elif key == "inc_col":
+            result_cols.append(settings.inc_col_name)
+        elif key == "df_a_cols":
+            for c in a_cols:
+                result_cols.append(c)
+        elif key == "df_b_cols":
+            for c in b_cols:
+                result_cols.append(c)
+        else:
+            result_cols.append(output_col)
+    result = result.select(*result_cols)
 
     log.debug("inc_join completed")
     return result

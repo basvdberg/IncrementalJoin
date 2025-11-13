@@ -2,7 +2,6 @@ from datetime import date, datetime
 from decimal import Decimal
 
 import pandas as pd
-import pytest
 from pyspark.sql import Row, SparkSession
 
 JOIN_RESULT_SCHEMA = (
@@ -17,69 +16,6 @@ JOIN_RESULT_SCHEMA_WITH_WAITING = (
 
 from src import inc_join
 from src.inc_join import IncJoinSettings
-
-
-@pytest.fixture(scope="session")
-def spark() -> SparkSession:
-    import logging
-    import os
-
-    logger = logging.getLogger(__name__)
-
-    # Check if an external Spark master URL is provided via environment variable
-    # Set SPARK_MASTER_URL to connect to an external Spark server
-    # Examples:
-    #   - Spark Standalone: "spark://hostname:7077"
-    #   - Spark Connect: "sc://hostname:15002"
-    #   - Local (default): "local[1]"
-    master_url = os.environ.get("SPARK_MASTER_URL", "local[1]")
-
-    # Check if we should use Spark Connect (client mode)
-    use_spark_connect = os.environ.get("SPARK_CONNECT_URL")
-
-    if use_spark_connect:
-        logger.info(f"Connecting to Spark Connect server: {use_spark_connect}")
-    elif master_url != "local[1]":
-        logger.info(f"Connecting to Spark master: {master_url}")
-    else:
-        logger.info("Using local Spark mode (local[1])")
-
-    if use_spark_connect:
-        # Spark Connect mode - connect to remote Spark server
-        # Note: Requires Spark 3.4+ for .remote() method
-        try:
-            session = (
-                SparkSession.builder.remote(use_spark_connect)
-                .appName("inc_join_tests")
-                .config("spark.ui.showConsoleProgress", "false")
-                .getOrCreate()
-            )
-        except AttributeError:
-            raise RuntimeError(
-                "Spark Connect requires Spark 3.4+. "
-                "Your Spark version may not support .remote(). "
-                "Try using SPARK_MASTER_URL instead, or upgrade Spark."
-            )
-        # Don't stop external Spark session
-        session.conf.set("spark.sql.session.timeZone", "Europe/Amsterdam")
-        yield session
-        # Note: We don't call session.stop() for external Spark Connect sessions
-    else:
-        # Traditional Spark mode
-        session = (
-            SparkSession.builder.master(master_url)
-            .appName("inc_join_tests")
-            .config("spark.ui.showConsoleProgress", "false")
-            .getOrCreate()
-        )
-        session.conf.set("spark.sql.session.timeZone", "Europe/Amsterdam")
-        yield session
-        # Only stop if it's a local session we created
-        if master_url.startswith("local"):
-            session.stop()
-        # For external masters, we might want to keep the session alive
-        # Uncomment the next line if you want to stop external sessions too:
-        # session.stop()
 
 
 def create_example_data(spark: SparkSession):
