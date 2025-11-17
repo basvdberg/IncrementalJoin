@@ -6,7 +6,6 @@ from typing import Iterable
 import pytest
 from pyspark.sql import SparkSession
 
-
 RESET = "\033[0m"
 COLOR_ERROR = "\033[31m"
 COLOR_CODE = "\033[90m"

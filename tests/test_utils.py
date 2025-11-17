@@ -23,4 +23,3 @@ def assert_sparkframes_equal(actual_df, expected_df, sort_keys):
             "Spark DataFrames differ. Combined view (sorted):\n"
             f"{comparison.to_string(index=False)}"
         ) from exc
-

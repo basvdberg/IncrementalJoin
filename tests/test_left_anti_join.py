@@ -11,14 +11,70 @@ from tests.test_utils import assert_sparkframes_equal
 def create_example_data(spark: SparkSession):
     schema = "TrxDT Timestamp, CreditDebit String, AmountEuro Decimal(12,2), AccountName String, TrxId Integer, RecDate Date"
     fin_data = [
-        Row(TrxDT=datetime(2025, 3, 6, 20, 45, 19), CreditDebit="Credit", AmountEuro=Decimal(700.30), AccountName="Mrs. Zsa Zsa", TrxId=1, RecDate=date(2025, 3, 6)),
-        Row(TrxDT=datetime(2025, 3, 6, 12, 22, 1), CreditDebit="Debit", AmountEuro=Decimal(200.00), AccountName="Mrs. Zsa Zsa", TrxId=2, RecDate=date(2025, 3, 6)),
-        Row(TrxDT=datetime(2025, 3, 6, 20, 59, 0), CreditDebit="Debit", AmountEuro=Decimal(1110.20), AccountName="Mrs. Zsa Zsa", TrxId=3, RecDate=date(2025, 3, 6)),
-        Row(TrxDT=datetime(2025, 3, 6, 23, 50, 0), CreditDebit="Credit", AmountEuro=Decimal(50.00), AccountName="Mrs. Zsa Zsa", TrxId=4, RecDate=date(2025, 3, 7)),
-        Row(TrxDT=datetime(2025, 3, 6, 8, 0, 0), CreditDebit="Credit", AmountEuro=Decimal(1500.00), AccountName="Mr. X", TrxId=5, RecDate=date(2025, 3, 7)),
-        Row(TrxDT=datetime(2025, 3, 7, 14, 45, 0), CreditDebit="Debit", AmountEuro=Decimal(300.25), AccountName="Mr. X", TrxId=6, RecDate=date(2025, 3, 7)),
-        Row(TrxDT=datetime(2025, 3, 10, 9, 0, 0), CreditDebit="Credit", AmountEuro=Decimal(99.99), AccountName="Mr. X", TrxId=7, RecDate=date(2025, 3, 8)),
-        Row(TrxDT=datetime(2025, 3, 10, 9, 0, 0), CreditDebit="Credit", AmountEuro=Decimal(99.99), AccountName="Mr. X", TrxId=8, RecDate=date(2025, 3, 8)),
+        Row(
+            TrxDT=datetime(2025, 3, 6, 20, 45, 19),
+            CreditDebit="Credit",
+            AmountEuro=Decimal(700.30),
+            AccountName="Mrs. Zsa Zsa",
+            TrxId=1,
+            RecDate=date(2025, 3, 6),
+        ),
+        Row(
+            TrxDT=datetime(2025, 3, 6, 12, 22, 1),
+            CreditDebit="Debit",
+            AmountEuro=Decimal(200.00),
+            AccountName="Mrs. Zsa Zsa",
+            TrxId=2,
+            RecDate=date(2025, 3, 6),
+        ),
+        Row(
+            TrxDT=datetime(2025, 3, 6, 20, 59, 0),
+            CreditDebit="Debit",
+            AmountEuro=Decimal(1110.20),
+            AccountName="Mrs. Zsa Zsa",
+            TrxId=3,
+            RecDate=date(2025, 3, 6),
+        ),
+        Row(
+            TrxDT=datetime(2025, 3, 6, 23, 50, 0),
+            CreditDebit="Credit",
+            AmountEuro=Decimal(50.00),
+            AccountName="Mrs. Zsa Zsa",
+            TrxId=4,
+            RecDate=date(2025, 3, 7),
+        ),
+        Row(
+            TrxDT=datetime(2025, 3, 6, 8, 0, 0),
+            CreditDebit="Credit",
+            AmountEuro=Decimal(1500.00),
+            AccountName="Mr. X",
+            TrxId=5,
+            RecDate=date(2025, 3, 7),
+        ),
+        Row(
+            TrxDT=datetime(2025, 3, 7, 14, 45, 0),
+            CreditDebit="Debit",
+            AmountEuro=Decimal(300.25),
+            AccountName="Mr. X",
+            TrxId=6,
+            RecDate=date(2025, 3, 7),
+        ),
+        Row(
+            TrxDT=datetime(2025, 3, 10, 9, 0, 0),
+            CreditDebit="Credit",
+            AmountEuro=Decimal(99.99),
+            AccountName="Mr. X",
+            TrxId=7,
+            RecDate=date(2025, 3, 8),
+        ),
+        Row(
+            TrxDT=datetime(2025, 3, 10, 9, 0, 0),
+            CreditDebit="Credit",
+            AmountEuro=Decimal(99.99),
+            AccountName="Mr. X",
+            TrxId=8,
+            RecDate=date(2025, 3, 8),
+        ),
     ]
     df_a = spark.createDataFrame(fin_data, schema=schema)
 
@@ -133,7 +189,7 @@ def test_left_anti_join_small_output_window(spark: SparkSession):
     )
     actual = actual.orderBy("TrxId")
     actual.show(truncate=True)
-    # 5 and 6 are in the output because max waiting is not big enough 
+    # 5 and 6 are in the output because max waiting is not big enough
     expected = spark.createDataFrame(
         [
             Row(TrxId=5, RecDate=date(2025, 3, 9), RecDate_A=date(2025, 3, 7)),
@@ -242,6 +298,7 @@ def test_left_anti_join_march_8(spark: SparkSession):
     actual = actual.select(expected.columns).orderBy("TrxId")
     assert_sparkframes_equal(actual, expected, sort_keys="TrxId")
 
+
 def test_left_anti_join_include_waiting_records(spark: SparkSession):
     """Test that waiting records (not timed out) are included when include_waiting=True"""
     df_a, df_b = create_example_data(spark)
@@ -269,12 +326,26 @@ def test_left_anti_join_include_waiting_records(spark: SparkSession):
 
     expected = spark.createDataFrame(
         [
-            Row(TrxId=5, RecDate=date(2025, 3, 9), RecDate_A=date(2025, 3, 7), WaitingTime=2),
-            Row(TrxId=6, RecDate=date(2025, 3, 9), RecDate_A=date(2025, 3, 7), WaitingTime=2),
-            Row(TrxId=8, RecDate=date(2025, 3, 9), RecDate_A=date(2025, 3, 8), WaitingTime=1),
+            Row(
+                TrxId=5,
+                RecDate=date(2025, 3, 9),
+                RecDate_A=date(2025, 3, 7),
+                WaitingTime=2,
+            ),
+            Row(
+                TrxId=6,
+                RecDate=date(2025, 3, 9),
+                RecDate_A=date(2025, 3, 7),
+                WaitingTime=2,
+            ),
+            Row(
+                TrxId=8,
+                RecDate=date(2025, 3, 9),
+                RecDate_A=date(2025, 3, 8),
+                WaitingTime=1,
+            ),
         ],
         schema="TrxId INT, RecDate DATE, RecDate_A DATE, WaitingTime INT",
     )
     actual = actual.select(expected.columns).orderBy("TrxId")
     assert_sparkframes_equal(actual, expected, sort_keys="TrxId")
-

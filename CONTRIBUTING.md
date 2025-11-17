@@ -14,10 +14,12 @@ Thanks for your interest in contributing to IncrementalJoin. Please follow these
    .\.venv\Scripts\Activate.ps1
    pip install -e .
    ```
-3. Install development/test deps (if provided):
+3. Install pre-commit hooks (enforces code formatting):
    ```powershell
-   pip install -r requirements-dev.txt
+   pip install pre-commit
+   pre-commit install
    ```
+   This will automatically format and lint your code before each commit.
 
 ## Workflow
 - Create a feature branch from `main`:
@@ -39,6 +41,9 @@ Thanks for your interest in contributing to IncrementalJoin. Please follow these
 - Use a minimal reproducible example where possible.
 
 ## Code style & tests
+- Code formatting is enforced automatically via pre-commit hooks using `ruff`.
+- The pre-commit hooks will run automatically on `git commit` and format/lint your code.
+- You can manually run the hooks on all files: `pre-commit run --all-files`
 - Follow PEP 8 for Python code.
 - Add unit tests for bug fixes and new features.
 - Run tests locally before pushing:
