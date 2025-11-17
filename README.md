@@ -35,7 +35,7 @@ Suppose you have two big datasets that are incrementally refreshed. This means t
 
 # Incremental join
 
-After loading the data, we want to join the two datasets. This join can become quite complex, because you will have to take into account that data might arrive late, or not at all. There is a tradeoff between completeness and performance here. When tables are small, we usually include all data in the join, this makes our code simple, but also slower. For big data tables this is not an option. 
+After loading the data, we want to join the two datasets. This join can become quite complex, because you will have to take into account that data might arrive late, or not at all. There is a tradeoff between completeness and performance here. When tables are small, we usually include all data in the join. This makes our code simple, but also slower. For big data tables this is not an option. 
 
 **Requirements of incremental join function:**
 - Performance: Filter A and B into the smallest subsets possible before joining. 
@@ -80,7 +80,7 @@ Let's introduce some example data:
 | 7     | DE          | 2025-03-06 |
 
 ## Arrival time of A versus B
-The following chart shows the arrival time of A versus the arrival time of B. Arrival time a synonym of RecDate.   
+The following chart shows the arrival time of A versus the arrival time of B. Arrival time is a synonym of RecDate.   
 
 ![datasets](docs/arrival_time_a_b.png)
 
@@ -90,8 +90,8 @@ We will abbreviate a transaction as Trx.
 
 - There are 7 transactions, each with a unique TrxId
 - Trx 3 and 4 arrive on the same day in dataset A and B.
-- Trx 1,2 and 7 have already arrived in B at the time they arrive in A ( we say that A is late).
-- Trx 5 and 6 arrive late in B ( B is late).    
+- Trx 1, 2 and 7 have already arrived in B at the time they arrive in A (we say that A is late).
+- Trx 5 and 6 arrive late in B (B is late).    
 
 Let's quantify how late B is with respect to A.
 | TrxId | RecDate_A | RecDate_B | DiffDays |
@@ -106,15 +106,15 @@ Let's quantify how late B is with respect to A.
 
 ## Sliding join window
 
-The sliding join window defines how we filter B when incrementally joining A with B. The sliding join window is defined with repect to dataset A. This example shows that we need to look back at most 2 days and wait 11 days in order to always find a match in B. 
+The sliding join window defines how we filter B when incrementally joining A with B. The sliding join window is defined with respect to dataset A. This example shows that we need to look back at most 2 days and wait 11 days in order to always find a match in B. 
 
-`sliding_join_window(df_a) = df_a.RecDate - look_back_time till df_a.RecDate + max_waiting_time`
+`sliding_join_window(df_a) = df_a.RecDate - look_back_time until df_a.RecDate + max_waiting_time`
 
 We define the sliding join window on df_a and then apply it on df_b (df_b.RecDate must be contained in the sliding_join_window(df_a)).
 Note that this window is a sliding window with respect to the RecDate of A. 
 
 ### Look back time
-How much time should we include in our filter to look back in arrival time of B ? Setting look back too high has negative impact on performance. Setting it too low will result in mismatches in the join. 
+How much time should we include in our filter to look back in arrival time of B? Setting look back too high has a negative impact on performance. Setting it too low will result in mismatches in the join. 
 
 ### Maximum waiting time
 How much time should we wait for the arrival of B. Setting the maximum waiting time too high results in high latencies in the delivery of the data to the consumer. Setting it too low will result in mismatches in the join.  
@@ -122,15 +122,15 @@ How much time should we wait for the arrival of B. Setting the maximum waiting t
 The effective waiting time that is applied to unmatched records is computed as:  
 `WaitingTime = min(max_waiting_time, max(0, output_window_end_dt - A.RecDate))`.
 
-Ideally look back and maximum waiting time are defined on max deltas between df_a.RecDate and df_b.RecDate in the historic data, potentially incremented with some bandwith for future scenario's.  
+Ideally look back and maximum waiting time are defined on max deltas between df_a.RecDate and df_b.RecDate in the historic data, potentially incremented with some bandwidth for future scenarios.  
 
 ![datasets](docs/datasets-1.png)
 
 ### Timed out records
 
-The maximum waiting time defines how long we should wait for a matching record in B. When a match is not found after this time, we call the record timed out. Waiting means that the incremental join will not output the record during the waiting interval. At the moment it is timed out, the record will be send to the output having a timed out status. 
+The maximum waiting time defines how long we should wait for a matching record in B. When a match is not found after this time, we call the record timed out. Waiting means that the incremental join will not output the record during the waiting interval. At the moment it is timed out, the record will be sent to the output having a timed out status. 
 
-For example, if we would take a waiting interval smaller than 11 then Trx 6 would be timed out at A.RecDate + wait interval. E.g. when the wait interval would be 10, Trx 6. would be timed out at 2025-03-17.
+For example, if we would take a waiting interval smaller than 11 then Trx 6 would be timed out at A.RecDate + wait interval. E.g. when the wait interval would be 10, Trx 6 would be timed out at 2025-03-17.
 
 ### Output window
 
@@ -147,7 +147,7 @@ For example: we want to have the output of the inc_join for 2025-03-07 (daily), 
 
 # Implementation
 
-Our implementation is split up in 4 scenario's, that each have a different use of the **sliding join window** and **output window**. We assume that time_uom equals day (to keep our documentation simple). 
+Our implementation is split up into 4 scenarios, each having a different use of the **sliding join window** and **output window**. We assume that time_uom equals day (to keep our documentation simple). 
 
 - `df_output:Dataframe` is the output dataset, where RecordDT is always contained in the output window. 
 - `A` stands for a record in df_a  
@@ -174,7 +174,7 @@ A and B arrived on the same day within the output window.
 - `delta_arrival_time == 0` 
 - `A.RecordDT is contained in the output window` 
 - `B.RecordDT is contained in the output window`. This follows from the first 2 conditions. 
-- if `enfore_sliding_join_window` then 
+- if `enforce_sliding_join_window` then 
   - `B.RecordDT is contained in the sliding join window of df_a.RecordDT`
 - `Output.RecordDT = max(df_A.RecordDT, df_B.RecordDT)`
 - `JoinType = 1` (same_time)
@@ -200,7 +200,7 @@ We cannot extend the filter that is based on output window to the future, becaus
 - `delta_arrival_time > 0` 
 - `B.RecordDT is contained in the output window` 
 - `A.RecordDT is contained in the output window extended with -max_waiting_time + 1` So A might have arrived before the beginning of the output window. +1 here is done to exclude the timed out records, which is the next scenario. 
-- if `enfore_sliding_join_window` then 
+- if `enforce_sliding_join_window` then 
   - `B.RecordDT is contained in the sliding join window of df_a.RecordDT`
 - `Output.RecordDT = df_B.RecordDT`
 - `JoinType = 3` (b_late)
@@ -208,10 +208,10 @@ We cannot extend the filter that is based on output window to the future, becaus
 ### 4. A is timed out
 
 - `B.RecordDT is None (no matching record found in df_B)` 
-- `delta_arrival_time is None ( because B.RecordDT is None)`.   
-- There is no match found in above scenario's 
-- `A.RecordDT is contained in the output window slided with -max_waiting_time` which means that both start and end date are reduced with max_waiting_time. 
-- if `enfore_sliding_join_window` then 
+- `delta_arrival_time is None (because B.RecordDT is None)`.   
+- There is no match found in the above scenarios
+- `A.RecordDT is contained in the output window shifted with -max_waiting_time` which means that both start and end date are reduced by max_waiting_time.
+- if `enforce_sliding_join_window` then 
   - `B.RecordDT is contained in the sliding join window of df_a.RecordDT`
 - `Output.RecordDT = df_A.RecordDT + WaitingTime` (when `WaitingTime` is computed, i.e. when `include_waiting=True`)
-- `JoinType = 4` (a_timed_out, also assigned whenever `
+- `JoinType = 4` (a_timed_out, also assigned whenever `WaitingTime == max_waiting_time`)
