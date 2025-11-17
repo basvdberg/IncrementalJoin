@@ -1,7 +1,6 @@
 {
   "folders": [
-    { "path": ".." },
-    { "path": "../time_utils" }
+    { "path": ".." }
   ],
   "settings": {}
 }
