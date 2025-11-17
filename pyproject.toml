@@ -8,22 +8,22 @@ dynamic = ["version"]
 description = "This library implements an incremental join function to join 2 (usually large) incrementally refreshed tables, taking into account the refresh timestamp of each table and the fact that data might arrive late."
 readme = "README.md"
 requires-python = ">=3.8"
-license = {text = "LGPL-3.0-or-later"}
+license = "LGPL-3.0-or-later"
 authors = [
     {name = "Bas van den Berg", email = "b.vdberg@c2h.nl"}
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: GNU Lesser General Public License v3 or later (LGPLv3+)",
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "pandas>=2.0",
-    "matplotlib>=3.8",
+    "pyspark>=3.0.0",
 ]
 
 [project.urls]
 Homepage = "https://github.com/basvdberg/IncrementalJoin"
+Repository = "https://github.com/basvdberg/IncrementalJoin"
+Issues = "https://github.com/basvdberg/IncrementalJoin/issues"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -32,7 +32,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.dynamic]
-version = {attr = "src.__version__.__version__"}
+version = {attr = "__version__.__version__"}
 
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
