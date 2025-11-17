@@ -66,8 +66,26 @@ def check_inc_join_params(
     output_window_end_dt: Optional[datetime.datetime],
     other_settings: Optional[IncJoinSettings],
     how: str,
-) -> tuple[IncJoinSettings, list[str], datetime.datetime, Optional[Union[str, Column]]]:
+) -> tuple[IncJoinSettings, list[str], datetime.datetime, Optional[Union[str, Column]], str]:
     """Validate and normalize the high-level configuration arguments passed to inc_join."""
+    # Normalize and validate how parameter
+    # Replace underscores and remove "outer" for comparison, then normalize to standard format
+    how_normalized = how.lower().replace("_", "").replace("outer", "")
+    valid_join_types = ["inner", "left", "leftanti", "full"]
+    valid_join_types_normalized = {
+        "inner": "inner",
+        "left": "left_outer" if "outer" in how.lower() else "left",
+        "leftanti": "left_anti",
+        "full": "full_outer",
+    }
+    if how_normalized not in valid_join_types:
+        valid_types_str = "inner, left (or left_outer), full_outer (or full), left_anti (or leftanti)"
+        raise ValueError(
+            f"Invalid join type '{how}'. Must be one of: {valid_types_str}. "
+            f"Underscores are optional."
+        )
+    how = valid_join_types_normalized[how_normalized]
+    
     # Validate that look_back_time and max_waiting_time are non-negative
     if look_back_time is None or look_back_time < 0:
         raise ValueError("look_back_time must be a non-negative integer (>= 0)")
@@ -125,7 +143,7 @@ def check_inc_join_params(
         if token.strip()
     ]
 
-    return settings, join_cols_list, output_window_end_dt, join_cond, output_columns
+    return settings, join_cols_list, output_window_end_dt, join_cond, output_columns, how
 
 def rename_columns(
     df: DataFrame, rename_map: dict[str, str]
@@ -175,7 +193,9 @@ def inc_join(
     Args:
         df_a (DataFrame): The first dataset (typically the primary dataset).
         df_b (DataFrame): The second dataset (typically the secondary dataset to join with).
-        how (str, optional): Type of join. Must be one of: 'left', 'inner', 'full_outer', 'left_anti'. Defaults to 'inner'.
+        how (str, optional): Type of join. Must be one of: 'inner', 'left' (or 'left_outer'), 
+                             'full_outer' (or 'full'), 'left_anti' (or 'leftanti'). 
+                             Underscores are optional. Defaults to 'left'.
     
         join_cols (Union[str, list], optional): Column(s) to join on. Should exist in both
                                                  datasets. Either join_cols or join_cond must be provided.
@@ -242,6 +262,7 @@ def inc_join(
         output_window_end_dt,
         join_cond,
         output_columns,
+        how,
     ) = check_inc_join_params(
         join_cols=join_cols,
         join_cond=join_cond,
@@ -389,10 +410,12 @@ def inc_join(
             )
 
     # step 9: Calculate metric DiffArrivalTime: B.[inc_col_name] - A.[inc_col_name] in days
-    result = result.withColumn(
-        "DiffArrivalTime",
-        F.when(inc_col_b.isNotNull(), F.datediff(inc_col_b, inc_col_a)).otherwise(None),
-    )
+    # Skip for left_anti joins as there are no matches
+    if how != "left_anti":
+        result = result.withColumn(
+            "DiffArrivalTime",
+            F.when(inc_col_b.isNotNull(), F.datediff(inc_col_b, inc_col_a)).otherwise(None),
+        )
     # step 10: Calculate metric waiting time for records in A that do not have a match in B
     waiting_time = F.least(
         F.lit(max_waiting_time),
@@ -401,29 +424,36 @@ def inc_join(
     result = result.withColumn("WaitingTime", F.when(inc_col_b.isNull(), waiting_time))
 
     # step 11: define join_type
-    timed_out_condition = inc_col_b.isNull() & (
-        F.col("WaitingTime") == F.lit(max_waiting_time)
-    )
-    waiting_condition = inc_col_b.isNull() & (
-        (F.col("WaitingTime") < F.lit(max_waiting_time))
-        & (F.lit(max_waiting_time) > F.lit(0)) # if max_waiting_time is 0 then records are timed out immediately ( no waiting).
-    )
-    join_type = (
-        F.when(timed_out_condition, F.lit("a_timed_out"))
-        .when(waiting_condition, F.lit("a_waiting"))
-        .when(F.col("DiffArrivalTime") == 0, F.lit("same_time"))
-        .when(F.col("DiffArrivalTime") < 0, F.lit("a_late"))
-        .when(F.col("DiffArrivalTime") > 0, F.lit("b_late"))
-        .otherwise(F.lit("not_matched"))
-    )
-    result = result.withColumn("JoinType", join_type)
+    # Skip for left_anti joins as there are no matches
+    if how != "left_anti":
+        timed_out_condition = inc_col_b.isNull() & (
+            F.col("WaitingTime") == F.lit(max_waiting_time)
+        )
+        waiting_condition = inc_col_b.isNull() & (
+            (F.col("WaitingTime") < F.lit(max_waiting_time))
+            & (F.lit(max_waiting_time) > F.lit(0)) # if max_waiting_time is 0 then records are timed out immediately ( no waiting).
+        )
+        join_type = (
+            F.when(timed_out_condition, F.lit("a_timed_out"))
+            .when(waiting_condition, F.lit("a_waiting"))
+            .when(F.col("DiffArrivalTime") == 0, F.lit("same_time"))
+            .when(F.col("DiffArrivalTime") < 0, F.lit("a_late"))
+            .when(F.col("DiffArrivalTime") > 0, F.lit("b_late"))
+            .otherwise(F.lit("not_matched"))
+        )
+        result = result.withColumn("JoinType", join_type)
 
     # step 12: filter out waiting records by default
     # By default, waiting records are not included in the output,
     # because the output contains only matched records or timed out records.
     # but you can override this by behaviour via the include_waiting setting.
     if not settings.include_waiting:
-        filter_expr = F.col("WaitingTime").isNull() | (F.col("JoinType") == F.lit("a_timed_out"))
+        if how == "left_anti":
+            # For left_anti joins, all records are unmatched, so filter based on WaitingTime
+            # Only include timed out records (WaitingTime == max_waiting_time)
+            filter_expr = F.col("WaitingTime") == F.lit(max_waiting_time)
+        else:
+            filter_expr = F.col("WaitingTime").isNull() | (F.col("JoinType") == F.lit("a_timed_out"))
         log.debug(
             "Filter waiting records. E.g. having a waiting time and not being timed out."
         )
@@ -467,9 +497,14 @@ def inc_join(
             for c in a_cols:
                 result_cols.append(c)
         elif key == "df_b_cols":
-            for c in b_cols:
-                result_cols.append(c)
+            # Skip df_b_cols for left_anti joins as there are no matches
+            if how != "left_anti":
+                for c in b_cols:
+                    result_cols.append(c)
         else:
+            # Skip DiffArrivalTime and JoinType for left_anti joins
+            if how == "left_anti" and output_col in ["DiffArrivalTime", "JoinType"]:
+                continue
             result_cols.append(output_col)
     result = result.select(*result_cols)
 
