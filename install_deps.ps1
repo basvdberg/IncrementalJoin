@@ -10,9 +10,9 @@ $repoRoot = Resolve-Path "."
 Set-Location $repoRoot
 
 & $PythonExe -m pip install --upgrade pip
-& $PythonExe -m pip install -r requirements.txt
+& $PythonExe -m pip install -e .
 
-Write-Host "Dependencies installed via requirements.txt" -ForegroundColor Green
+Write-Host "Dependencies installed from pyproject.toml" -ForegroundColor Green
 
 
 
