@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "incremental-join"
 dynamic = ["version"]
-description = "This python library helps you to join 2 huge incrementally refreshed tables. Major benefits: performance, efficiency and consistency."
+description = "This library implements an incremental join function to join 2 (usually large) incrementally refreshed tables, taking into account the refresh timestamp of each table and the fact that data might arrive late."
 readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "LGPL-3.0-or-later"}
