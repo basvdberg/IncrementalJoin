@@ -3,7 +3,7 @@ import logging
 from dataclasses import dataclass
 from functools import reduce
 from operator import and_
-from typing import Optional, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 from pyspark.sql import Column, DataFrame
 from pyspark.sql import functions as F
@@ -67,8 +67,8 @@ def check_inc_join_params(
     output_window_end_dt: Optional[datetime.datetime],
     other_settings: Optional[IncJoinSettings],
     how: str,
-) -> tuple[
-    IncJoinSettings, list[str], datetime.datetime, Optional[Union[str, Column]], str
+) -> Tuple[
+    IncJoinSettings, List[str], datetime.datetime, Optional[Union[str, Column]], str
 ]:
     """Validate and normalize the high-level configuration arguments passed to inc_join."""
     # Normalize and validate how parameter
@@ -158,7 +158,7 @@ def check_inc_join_params(
     )
 
 
-def rename_columns(df: DataFrame, rename_map: dict[str, str]) -> DataFrame:
+def rename_columns(df: DataFrame, rename_map: Dict[str, str]) -> DataFrame:
     """Rename columns in df according to rename_map, checking for collisions."""
     for old_name, new_name in rename_map.items():
         if new_name in df.columns:
@@ -290,7 +290,7 @@ def inc_join(
     # join_cols and inc_col_name should be in the common columns.
     required_common_cols = {settings.inc_col_name}
     required_common_cols.update(join_cols_list)
-    common_cols = set[str](df_a.columns) & set[str](df_b.columns)
+    common_cols = set(df_a.columns) & set(df_b.columns)
     missing_common = required_common_cols - common_cols
     if missing_common:
         raise ValueError(
