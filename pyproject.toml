@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "incremental-join"
-dynamic = ["version"]
+version = "0.1.0"
 description = "This library implements an incremental join function to join 2 (usually large) incrementally refreshed tables, taking into account the refresh timestamp of each table and the fact that data might arrive late."
 readme = "README.md"
 requires-python = ">=3.8"
-license = {text = "LGPL-3.0-or-later"}
+license = "LGPL-3.0-or-later"
 authors = [
     {name = "Bas van den Berg", email = "b.vdberg@c2h.nl"}
 ]
@@ -30,9 +30,6 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.setuptools.dynamic]
-version = {attr = "__version__.__version__"}
 
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
