@@ -322,15 +322,25 @@ def inc_join(
             inc_col_b = F.to_date(inc_col_b)
 
     # step 4: Apply output window filters
-    filter_a = []
-    filter_b = []
+    # Convert datetime objects to date columns respecting session timezone
+    # When datetime objects are passed, Spark interprets them in the session timezone
+    # We use to_date() on timestamp literals to ensure consistent date comparison
+    def to_date_col(dt):
+        """Convert datetime to Spark date column respecting session timezone."""
+        if dt is None:
+            return None
+        # Convert datetime to timestamp literal, then to date (respects session timezone)
+        return F.to_date(F.lit(dt))
+
+    filter_a = None
+    filter_b = None
     if output_window_start_dt is not None:
         # ow = output window
         # A is element of ow left extended with max_waiting_time
         max_wait_extended_start = output_window_start_dt - datetime.timedelta(
             days=max_waiting_time
         )
-        filter_a = inc_col_a >= F.lit(max_wait_extended_start)
+        filter_a = inc_col_a >= to_date_col(max_wait_extended_start)
 
         # B is element of ow left extended with look_back_time ( for A is late scenario)
         # B is element of ow left extended with look_back_time + max_waiting_time( for A is timed out scenario)
@@ -342,11 +352,21 @@ def inc_join(
             - datetime.timedelta(days=look_back_time)
             - datetime.timedelta(days=max_waiting_time)
         )
-        filter_b = inc_col_b >= F.lit(lb_extended_start)
+        filter_b = inc_col_b >= to_date_col(lb_extended_start)
 
-    filter_a = filter_a & (inc_col_a <= F.lit(output_window_end_dt))
+    # Always apply upper bound filter
+    end_filter_a = inc_col_a <= to_date_col(output_window_end_dt)
+    end_filter_b = inc_col_b <= to_date_col(output_window_end_dt)
 
-    filter_b = filter_b & (inc_col_b <= F.lit(output_window_end_dt))
+    if filter_a is not None:
+        filter_a = filter_a & end_filter_a
+    else:
+        filter_a = end_filter_a
+
+    if filter_b is not None:
+        filter_b = filter_b & end_filter_b
+    else:
+        filter_b = end_filter_b
 
     log.debug(f"Applying filter on df_a: {filter_a}")
     a = a.filter(filter_a)
@@ -421,9 +441,11 @@ def inc_join(
             ),
         )
     # step 10: Calculate metric waiting time for records in A that do not have a match in B
+    # Convert datetime to date column respecting session timezone
+    end_dt_col = to_date_col(output_window_end_dt)
     waiting_time = F.least(
         F.lit(max_waiting_time),
-        F.greatest(F.lit(0), F.datediff(F.lit(output_window_end_dt), inc_col_a)),
+        F.greatest(F.lit(0), F.datediff(end_dt_col, inc_col_a)),
     )
     result = result.withColumn("WaitingTime", F.when(inc_col_b.isNull(), waiting_time))
 
@@ -491,8 +513,8 @@ def inc_join(
     # This will remove the records in the lookback + waiting period.
     if output_window_start_dt is not None:
         result = result.filter(
-            (F.col(settings.inc_col_name) >= F.lit(output_window_start_dt))
-            & (F.col(settings.inc_col_name) <= F.lit(output_window_end_dt))
+            (F.col(settings.inc_col_name) >= to_date_col(output_window_start_dt))
+            & (F.col(settings.inc_col_name) <= to_date_col(output_window_end_dt))
         )
 
     # step 15: select output columns
