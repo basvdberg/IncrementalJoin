@@ -1,6 +1,8 @@
 import datetime
 import logging
 from dataclasses import dataclass
+from datetime import date as Date
+from datetime import datetime as DateTime
 from functools import reduce
 from operator import and_
 from typing import Dict, List, Optional, Tuple, Union
@@ -63,12 +65,12 @@ def check_inc_join_params(
     join_cond: Optional[Union[str, Column]],
     look_back_time: Optional[int],
     max_waiting_time: Optional[int],
-    output_window_start_dt: Optional[datetime.datetime],
-    output_window_end_dt: Optional[datetime.datetime],
+    output_window_start: Optional[Union[DateTime, Date]],
+    output_window_end: Optional[Union[DateTime, Date]],
     other_settings: Optional[IncJoinSettings],
     how: str,
 ) -> Tuple[
-    IncJoinSettings, List[str], datetime.datetime, Optional[Union[str, Column]], str
+    IncJoinSettings, List[str], Union[DateTime, Date], Optional[Union[str, Column]], str
 ]:
     """Validate and normalize the high-level configuration arguments passed to inc_join."""
     # Normalize and validate how parameter
@@ -97,11 +99,11 @@ def check_inc_join_params(
     if max_waiting_time is None or max_waiting_time < 0:
         raise ValueError("max_waiting_time must be a non-negative integer (>= 0)")
     # if no end of output window is specified, we take today as end date because the inc_col value cannot be in the future.
-    if output_window_end_dt is None:
-        output_window_end_dt = datetime.datetime.now()
+    if output_window_end is None:
+        output_window_end = DateTime.now()
         log.debug(
             "Output window end not specified; defaulting to today %s",
-            output_window_end_dt,
+            output_window_end,
         )
 
     settings = other_settings or IncJoinSettings()
@@ -132,8 +134,8 @@ def check_inc_join_params(
             join_cond_repr,
             look_back_time,
             max_waiting_time,
-            output_window_start_dt,
-            output_window_end_dt,
+            output_window_start,
+            output_window_end,
             settings.include_waiting,
             settings.inc_col_name,
             settings.alias_a,
@@ -151,7 +153,7 @@ def check_inc_join_params(
     return (
         settings,
         join_cols_list,
-        output_window_end_dt,
+        output_window_end,
         join_cond,
         output_columns,
         how,
@@ -183,8 +185,8 @@ def inc_join(
     look_back_time: int = 0,  # default is 0 days
     max_waiting_time: int = 0,  # default is 0 days
     # define the output window:
-    output_window_start_dt: datetime.datetime = None,
-    output_window_end_dt: datetime.datetime = None,
+    output_window_start: Optional[Union[DateTime, Date]] = None,
+    output_window_end: Optional[Union[DateTime, Date]] = None,
     # to reduce the amount of parameters, other settings are passed as an IncJoinSettings object
     other_settings: Optional[IncJoinSettings] = None,
 ) -> DataFrame:
@@ -220,14 +222,14 @@ def inc_join(
         max_waiting_time (int): Maximum waiting time in days to allow late arrivals from df_b.
                                 This defines how long to wait for matches when df_b
                                 arrives after df_a. Defaults to 0.
-        output_window_start_dt (Optional[datetime.datetime]): Start datetime of the output window.
+        output_window_start (Optional[Union[datetime.datetime, datetime.date]]): Start datetime/date of the output window.
                                                                Records in the output will have
-                                                               [inc_col_name] >= output_window_start_dt.
+                                                               [inc_col_name] >= output_window_start.
                                                                Defaults to None (no lower bound).
-        output_window_end_dt (Optional[datetime.datetime]): End datetime of the output window.
+        output_window_end (Optional[Union[datetime.datetime, datetime.date]]): End datetime/date of the output window.
                                                              Records in the output will have
-                                                             [inc_col_name] <= output_window_end_dt.
-                                                             Defaults to None, which will use today's date
+                                                             [inc_col_name] <= output_window_end.
+                                                             Defaults to None, which will use today's datetime
                                                              (datetime.datetime.now()) as the upper bound.
         other_settings (Optional[IncJoinSettings]): An IncJoinSettings object containing advanced
                                                      join options:
@@ -259,7 +261,7 @@ def inc_join(
                 - None if df_a is unmatched (timed out).
             - WaitingTime: For unmatched df_a records, the number of days waited before timing out.
               Computed as the minimum of max_waiting_time and the days between df_a.[inc_col_name] and
-              output_window_end_dt. Null for matched records.
+              output_window_end. Null for matched records.
             - JoinType: Short string describing which join scenario applies to this record:
                 - "same_time": A and B arrived at the same time (delta_arrival_time == 0).
                 - "a_late": A arrived later than B (delta_arrival_time < 0).
@@ -274,7 +276,7 @@ def inc_join(
     (
         settings,
         join_cols_list,
-        output_window_end_dt,
+        output_window_end,
         join_cond,
         output_columns,
         how,
@@ -283,8 +285,8 @@ def inc_join(
         join_cond=join_cond,
         look_back_time=look_back_time,
         max_waiting_time=max_waiting_time,
-        output_window_start_dt=output_window_start_dt,
-        output_window_end_dt=output_window_end_dt,
+        output_window_start=output_window_start,
+        output_window_end=output_window_end,
         other_settings=other_settings,
         how=how,
     )
@@ -337,10 +339,10 @@ def inc_join(
 
     filter_a = None
     filter_b = None
-    if output_window_start_dt is not None:
+    if output_window_start is not None:
         # ow = output window
         # A is element of ow left extended with max_waiting_time
-        max_wait_extended_start = output_window_start_dt - datetime.timedelta(
+        max_wait_extended_start = output_window_start - datetime.timedelta(
             days=max_waiting_time
         )
         filter_a = inc_col_a >= to_date_col(max_wait_extended_start)
@@ -351,15 +353,15 @@ def inc_join(
         # we need to include the timed out records. In order to determine them we need to check if there is a
         # match in B within the look_back_time.
         lb_extended_start = (
-            output_window_start_dt
+            output_window_start
             - datetime.timedelta(days=look_back_time)
             - datetime.timedelta(days=max_waiting_time)
         )
         filter_b = inc_col_b >= to_date_col(lb_extended_start)
 
     # Always apply upper bound filter
-    end_filter_a = inc_col_a <= to_date_col(output_window_end_dt)
-    end_filter_b = inc_col_b <= to_date_col(output_window_end_dt)
+    end_filter_a = inc_col_a <= to_date_col(output_window_end)
+    end_filter_b = inc_col_b <= to_date_col(output_window_end)
 
     if filter_a is not None:
         filter_a = filter_a & end_filter_a
@@ -445,7 +447,7 @@ def inc_join(
         )
     # step 10: Calculate metric waiting time for records in A that do not have a match in B
     # Convert datetime to date column respecting session timezone
-    end_dt_col = to_date_col(output_window_end_dt)
+    end_dt_col = to_date_col(output_window_end)
     waiting_time = F.least(
         F.lit(max_waiting_time),
         F.greatest(F.lit(0), F.datediff(end_dt_col, inc_col_a)),
@@ -514,10 +516,10 @@ def inc_join(
 
     # step 14: filter on output window, only keep records that are within the output window
     # This will remove the records in the lookback + waiting period.
-    if output_window_start_dt is not None:
+    if output_window_start is not None:
         result = result.filter(
-            (F.col(settings.inc_col_name) >= to_date_col(output_window_start_dt))
-            & (F.col(settings.inc_col_name) <= to_date_col(output_window_end_dt))
+            (F.col(settings.inc_col_name) >= to_date_col(output_window_start))
+            & (F.col(settings.inc_col_name) <= to_date_col(output_window_end))
         )
 
     # step 15: select output columns

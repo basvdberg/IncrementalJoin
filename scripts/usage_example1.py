@@ -34,8 +34,8 @@ result = inc_join(
     join_cols="TrxId",  # Join on transaction ID
     look_back_time=2,  # Look back 2 days for late arrivals
     max_waiting_time=5,  # Wait up to 5 days for late arrivals
-    output_window_start_dt=date(2025, 3, 6),
-    output_window_end_dt=date(2025, 3, 6),
+    output_window_start=date(2025, 3, 6),
+    output_window_end=date(2025, 3, 6),
 )
 
 # Show results

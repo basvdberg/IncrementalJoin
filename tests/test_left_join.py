@@ -106,8 +106,8 @@ def test_left_join_look_back_eq_1(spark: SparkSession):
         look_back_time=1,
         max_waiting_time=0,
         other_settings=settings,
-        output_window_start_dt=datetime(2025, 3, 1),
-        output_window_end_dt=datetime(2025, 3, 30),
+        output_window_start=date(2025, 3, 1),
+        output_window_end=date(2025, 3, 30),
     )
     joined = joined.orderBy("TrxId")
     joined.show(truncate=True)
@@ -197,8 +197,8 @@ def test_left_join_no_enforce_sliding_window(spark: SparkSession):
         look_back_time=3,
         max_waiting_time=5,
         other_settings=settings,
-        output_window_start_dt=datetime(2025, 3, 1),
-        output_window_end_dt=datetime(2025, 3, 30),
+        output_window_start=date(2025, 3, 1),
+        output_window_end=date(2025, 3, 30),
     )
     actual = actual.orderBy("TrxId")
     actual.show(truncate=True)
@@ -284,8 +284,8 @@ def test_left_join_timed_out_rows(spark: SparkSession):
         look_back_time=3,
         max_waiting_time=5,
         other_settings=settings,
-        output_window_start_dt=datetime(2025, 3, 1),
-        output_window_end_dt=datetime(2025, 3, 20),
+        output_window_start=date(2025, 3, 1),
+        output_window_end=date(2025, 3, 20),
     )
     actual = actual.orderBy("TrxId")
     actual.show(truncate=True)
@@ -371,8 +371,8 @@ def test_left_join_small_output_window(spark: SparkSession):
         look_back_time=3,
         max_waiting_time=5,
         other_settings=settings,
-        output_window_start_dt=datetime(2025, 3, 1),
-        output_window_end_dt=datetime(2025, 3, 9),
+        output_window_start=date(2025, 3, 1),
+        output_window_end=date(2025, 3, 9),
     )
     actual = actual.orderBy("TrxId")
     actual.show(truncate=True)
@@ -442,8 +442,8 @@ def test_left_join_march_6(spark: SparkSession):
         look_back_time=3,
         max_waiting_time=5,
         other_settings=settings,
-        output_window_start_dt=datetime(2025, 3, 6),
-        output_window_end_dt=datetime(2025, 3, 6),
+        output_window_start=date(2025, 3, 6),
+        output_window_end=date(2025, 3, 6),
     )
     actual = actual.orderBy("TrxId")
     actual.show(truncate=True)
@@ -497,8 +497,8 @@ def test_left_join_march_7(spark: SparkSession):
         look_back_time=3,
         max_waiting_time=5,
         other_settings=settings,
-        output_window_start_dt=datetime(2025, 3, 7),
-        output_window_end_dt=datetime(2025, 3, 7),
+        output_window_start=date(2025, 3, 7),
+        output_window_end=date(2025, 3, 7),
     )
     actual = actual.orderBy("TrxId")
     actual.show(truncate=True)
@@ -536,8 +536,8 @@ def test_left_join_march_8(spark: SparkSession):
         look_back_time=3,
         max_waiting_time=5,
         other_settings=settings,
-        output_window_start_dt=datetime(2025, 3, 8),
-        output_window_end_dt=datetime(2025, 3, 8),
+        output_window_start=date(2025, 3, 8),
+        output_window_end=date(2025, 3, 8),
     )
     actual = actual.orderBy("TrxId")
     actual.show(truncate=True)
@@ -575,8 +575,8 @@ def test_left_join_march_9(spark: SparkSession):
         look_back_time=3,
         max_waiting_time=5,
         other_settings=settings,
-        output_window_start_dt=datetime(2025, 3, 9),
-        output_window_end_dt=datetime(2025, 3, 9),
+        output_window_start=date(2025, 3, 9),
+        output_window_end=date(2025, 3, 9),
     )
     actual = actual.orderBy("TrxId")
     actual.show(truncate=True)
@@ -602,8 +602,8 @@ def test_left_join_march_10(spark: SparkSession):
         look_back_time=3,
         max_waiting_time=5,
         other_settings=settings,
-        output_window_start_dt=datetime(2025, 3, 10),
-        output_window_end_dt=datetime(2025, 3, 10),
+        output_window_start=date(2025, 3, 10),
+        output_window_end=date(2025, 3, 10),
     )
     actual = actual.orderBy("TrxId")
     actual.show(truncate=True)
@@ -629,8 +629,8 @@ def test_left_join_march_11(spark: SparkSession):
         look_back_time=3,
         max_waiting_time=5,
         other_settings=settings,
-        output_window_start_dt=datetime(2025, 3, 11),
-        output_window_end_dt=datetime(2025, 3, 11),
+        output_window_start=date(2025, 3, 11),
+        output_window_end=date(2025, 3, 11),
     )
     actual = actual.orderBy("TrxId")
     actual.show(truncate=True)
@@ -656,8 +656,8 @@ def test_left_join_march_12(spark: SparkSession):
         look_back_time=3,
         max_waiting_time=5,
         other_settings=settings,
-        output_window_start_dt=datetime(2025, 3, 12),
-        output_window_end_dt=datetime(2025, 3, 12),
+        output_window_start=date(2025, 3, 12),
+        output_window_end=date(2025, 3, 12),
     )
     actual = actual.orderBy("TrxId")
     actual.show(truncate=True)
@@ -709,8 +709,8 @@ def test_left_join_march_13(spark: SparkSession):
         look_back_time=3,
         max_waiting_time=5,
         other_settings=settings,
-        output_window_start_dt=datetime(2025, 3, 13),
-        output_window_end_dt=datetime(2025, 3, 13),
+        output_window_start=date(2025, 3, 13),
+        output_window_end=date(2025, 3, 13),
     )
     actual = actual.orderBy("TrxId")
     actual.show(truncate=True)
@@ -737,8 +737,8 @@ def test_left_join_include_waiting_records(spark: SparkSession):
         look_back_time=3,
         max_waiting_time=5,
         other_settings=settings,
-        output_window_start_dt=datetime(2025, 3, 1),
-        output_window_end_dt=datetime(
+        output_window_start=date(2025, 3, 1),
+        output_window_end=date(
             2025, 3, 9
         ),  # Small window so TrxId 5 and 6 are waiting but not timed out
     )
@@ -834,10 +834,8 @@ def test_left_join_waiting_vs_timed_out_records(spark: SparkSession):
         look_back_time=3,
         max_waiting_time=5,
         other_settings=settings,
-        output_window_start_dt=datetime(2025, 3, 1),
-        output_window_end_dt=datetime(
-            2025, 3, 20
-        ),  # Larger window, TrxId 6 should time out
+        output_window_start=date(2025, 3, 1),
+        output_window_end=date(2025, 3, 20),  # Larger window, TrxId 6 should time out
     )
     actual = actual.orderBy("TrxId")
     actual.show(truncate=True)
