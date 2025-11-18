@@ -14,7 +14,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    environment: Configure PyPiApi
+    environment: PyPiApi
     strategy:
       fail-fast: false
       matrix:
