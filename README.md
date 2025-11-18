@@ -59,7 +59,7 @@ After loading the data, we want to join the two datasets. This join can become q
 
 **Requirements of incremental join function:**
 - Performance: Filter A and B into the smallest subsets possible before joining. 
-- Consistency: The outcome of the join is not dependent on the size of the join interval (e.g. daily, monthly, yearly). This is often a requirement when using the data for machine learning and you don't want to be troubled by changing historic data. Note that we made this requirement optional by using the enforce_sliding_join_window parameter (which is true by default). 
+- Consistency: The join results remain consistent regardless of the output window size (daily, monthly, yearly). This ensures that historical data doesn't change when reprocessing with different window sizes, which is crucial for machine learning workflows. This behavior is controlled by the `enforce_sliding_join_window` parameter (default: `True`). When enabled, records unmatched in a daily load will remain unmatched in a yearly historic load, preventing data drift in ML models that depend on previously processed data.  
 
 Moving the join logic to a dedicated function implements the following requirements:
 - Efficiency: Users do not have to worry about the complexity of incremental join. Secondly by using this function you know that every incremental join works identical.  
