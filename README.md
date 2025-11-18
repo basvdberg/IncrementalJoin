@@ -1,3 +1,27 @@
+- [Dependencies](#dependencies)
+- [Summary](#summary)
+- [Installation and Usage](#installation-and-usage)
+  - [Installation](#installation)
+  - [Quick Start Example](#quick-start-example)
+- [Incremental refresh](#incremental-refresh)
+- [Incremental join](#incremental-join)
+- [Example](#example)
+  - [A](#a)
+  - [B](#b)
+  - [Arrival time of A versus B](#arrival-time-of-a-versus-b)
+    - [Observations:](#observations)
+  - [Sliding join window](#sliding-join-window)
+    - [Look back time](#look-back-time)
+    - [Maximum waiting time](#maximum-waiting-time)
+    - [Timed out records](#timed-out-records)
+    - [Output window](#output-window)
+- [Implementation](#implementation)
+  - [Join scenarios inc\_join(df\_a, df\_b)](#join-scenarios-inc_joindf_a-df_b)
+    - [1. Same time](#1-same-time)
+    - [2. A is late](#2-a-is-late)
+    - [3. B is late](#3-b-is-late)
+    - [4. A is timed out](#4-a-is-timed-out)
+
 # Dependencies 
 - Python >= 3.9 (it might run on earlier versions, but we did not test that)
 - PySpark >= 3.0.0
@@ -22,33 +46,7 @@ This will automatically install PySpark as a dependency (requires PySpark >= 3.0
 
 ## Quick Start Example
 
-Here's a simple example demonstrating how to use the incremental join function:
-
 See [`scripts/usage_example1.py`](scripts/usage_example1.py) for a complete working example.
-
-- [Dependencies](#dependencies)
-- [Summary](#summary)
-- [Installation and Usage](#installation-and-usage)
-  - [Installation](#installation)
-  - [Quick Start Example](#quick-start-example)
-- [Incremental refresh](#incremental-refresh)
-- [Incremental join](#incremental-join)
-- [Example](#example)
-  - [A](#a)
-  - [B](#b)
-  - [Arrival time of A versus B](#arrival-time-of-a-versus-b)
-    - [Observations:](#observations)
-  - [Sliding join window](#sliding-join-window)
-    - [Look back time](#look-back-time)
-    - [Maximum waiting time](#maximum-waiting-time)
-    - [Timed out records](#timed-out-records)
-    - [Output window](#output-window)
-- [Implementation](#implementation)
-  - [Join scenarios inc\_join(df\_a, df\_b)](#join-scenarios-inc_joindf_a-df_b)
-    - [1. Same time](#1-same-time)
-    - [2. A is late](#2-a-is-late)
-    - [3. B is late](#3-b-is-late)
-    - [4. A is timed out](#4-a-is-timed-out)
 
 # Incremental refresh
 
