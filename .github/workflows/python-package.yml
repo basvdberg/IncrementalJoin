@@ -50,34 +50,10 @@ jobs:
         TWINE_USERNAME: __token__
         TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
 
-    - name: Verify PyPI token is accessible
-      if: matrix.python-version == '3.11.9' && (github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_pypi != 'true'))
-      run: |
-        if [ -z "$PYPI_TOKEN" ]; then
-          echo "ERROR: PYPI_API_TOKEN secret is not set in repository secrets"
-          exit 1
-        else
-          TOKEN_LENGTH=${#PYPI_TOKEN}
-          echo "PyPI token is accessible (length: $TOKEN_LENGTH characters)"
-          if [ "$TOKEN_LENGTH" -lt 10 ]; then
-            echo "WARNING: Token seems too short. Expected PyPI token to start with 'pypi-'"
-            exit 1
-          fi
-          # Check if token starts with pypi-
-          if [[ ! "$PYPI_TOKEN" =~ ^pypi- ]]; then
-            echo "WARNING: Token doesn't start with 'pypi-'. Please verify it's a valid PyPI API token"
-            exit 1
-          else
-            echo "Token format looks correct (starts with 'pypi-')"
-          fi
-        fi
-      env:
-        PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-
     - name: Publish package to PyPI
       if: matrix.python-version == '3.11.9' && (github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_pypi != 'true'))
       run: |
-        python -m twine upload --verbose dist/* 
+        python -m twine upload dist/* 
       env:
         TWINE_USERNAME: __token__
         TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
