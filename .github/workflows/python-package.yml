@@ -1,12 +1,15 @@
 name: Build and Publish Python Package
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
+  release:
+    types: [published]
+  workflow_dispatch:  # Allow manual triggering
+    inputs:
+      test_pypi:
+        description: 'Upload to TestPyPI instead of PyPI'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
   build:
@@ -36,9 +39,18 @@ jobs:
       run: |
         python -m build
 
-    - name: Publish package
+    - name: Publish package to TestPyPI
+      if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_pypi == 'true'
+      run: |
+        python -m twine upload --repository testpypi dist/*
+      env:
+        TWINE_USERNAME: __token__
+        TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
+
+    - name: Publish package to PyPI
+      if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_pypi != 'true')
       run: |
         python -m twine upload dist/* 
       env:
-        TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
-        TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+        TWINE_USERNAME: __token__
+        TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
