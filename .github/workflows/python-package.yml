@@ -13,17 +13,19 @@ on:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11.9", "3.12"]
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up Python
+    - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
       with:
-        python-version: '3.11.9'  # Specify the Python version to use
+        python-version: ${{ matrix.python-version }}
 
     - name: Install dependencies
       run: |
@@ -36,11 +38,12 @@ jobs:
         pytest tests
 
     - name: Build package
+      if: matrix.python-version == '3.11.9'  # Only build once, using Python 3.11.9
       run: |
         python -m build
 
     - name: Publish package to TestPyPI
-      if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_pypi == 'true'
+      if: matrix.python-version == '3.11.9' && github.event_name == 'workflow_dispatch' && github.event.inputs.test_pypi == 'true'
       run: |
         python -m twine upload --repository testpypi dist/*
       env:
@@ -48,7 +51,7 @@ jobs:
         TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
 
     - name: Publish package to PyPI
-      if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_pypi != 'true')
+      if: matrix.python-version == '3.11.9' && (github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_pypi != 'true'))
       run: |
         python -m twine upload dist/* 
       env:
