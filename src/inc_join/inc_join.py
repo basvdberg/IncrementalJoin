@@ -24,7 +24,7 @@ class IncJoinSettings:
         include_waiting (bool): If True, include unmatched rows from df_a in the output(waiting records). Defaults to False.
         inc_col_name (str): Incremental column name. Column that identifies each increment. Should be sequential
                              and of date or datetime type. (Numbers are not supported at this time).
-                             Defaults to 'RecordDT'. Should exist in both datasets.
+                             Defaults to 'RecDate'. Should exist in both datasets.
         time_uom (str): Time unit of measure for the incremental column. Currently only 'day' is supported.
         enforce_sliding_join_window (bool): Default is True. If True, the sliding join window will be enforced. This means that
         the output will be the same regardless of the size of the output window. So even when joining e.g. a year, the records in A will
@@ -46,7 +46,7 @@ class IncJoinSettings:
     alias_a: str = "A"
     alias_b: str = "B"
     include_waiting: bool = False
-    inc_col_name: str = "RecordDT"
+    inc_col_name: str = "RecDate"
     time_uom: str = "day"
     enforce_sliding_join_window: bool = True
     output_select: str = "join_cols, inc_col, df_a_cols, df_b_cols, DiffArrivalTime, WaitingTime, JoinType"
@@ -176,7 +176,7 @@ def rename_columns(df: DataFrame, rename_map: Dict[str, str]) -> DataFrame:
 def inc_join(
     df_a: DataFrame,
     df_b: DataFrame,
-    how: str = "inner",
+    how: str = "left",
     join_cols: Union[str, list] = None,
     join_cond: Optional[Union[str, Column]] = None,
     # define the sliding join window:
@@ -227,7 +227,8 @@ def inc_join(
         output_window_end_dt (Optional[datetime.datetime]): End datetime of the output window.
                                                              Records in the output will have
                                                              [inc_col_name] <= output_window_end_dt.
-                                                             Defaults to None (no upper bound).
+                                                             Defaults to None, which will use today's date
+                                                             (datetime.datetime.now()) as the upper bound.
         other_settings (Optional[IncJoinSettings]): An IncJoinSettings object containing advanced
                                                      join options:
             - alias_a (str): Alias for df_a columns if conflicts occur. Defaults to 'A'.
@@ -236,12 +237,11 @@ def inc_join(
                                       (waiting/timed out records). Defaults to False.
             - inc_col_name (str): Incremental column name. Column that identifies each increment.
                                    Should be sequential and of date or datetime type.
-                                   (Numbers are not supported at this time). Defaults to 'RecordDT'.
+                                   (Numbers are not supported at this time). Defaults to 'RecDate'.
                                    Should exist in both datasets.
-            - output_select (str): Comma separated tokens that define the column order of the output.
-                                   Supports the same tokens as IncJoinSettings.output_select. Defaults to
-                                   "join_cols, inc_col, df_a_cols, df_b_cols, inc_col_a, inc_col_b, DiffArrivalTime, "
-                                   "WaitingTime, JoinType".
+            - output_select (str): Comma separated list of output columns.
+                                   Defaults to
+                                   "join_cols, inc_col, df_a_cols, df_b_cols, DiffArrivalTime, WaitingTime, JoinType".
 
     Returns:
         DataFrame: The result of the incremental join, including:
@@ -266,6 +266,9 @@ def inc_join(
                 - "b_late": B arrived later than A (delta_arrival_time > 0).
                 - "a_timed_out": No match found in df_b after max_waiting_time (B.[inc_col_name] is None).
                 - "a_waiting": No match found in df_b yet, but WaitingTime < max_waiting_time (only included when include_waiting=True).
+                - "not_matched": Occurs primarily in full_outer joins when df_b has unmatched records
+                  (no corresponding df_a record), resulting in A.[inc_col_name] being None and
+                  DiffArrivalTime being None. Rarely occurs in other join types.
     """
     # step 1: validate the parameters
     (

@@ -1,15 +1,110 @@
 # Dependencies 
-- Python
-- PySpark
+- Python >= 3.9 (it might run on earlier versions, but we did not test that)
+- PySpark >= 3.0.0
 
 # Summary
 
 This library implements an incremental join function to join 2 (usually large) incrementally refreshed tables, taking into account the refresh timestamp of each table and the fact that data might arrive late. 
 
-For a detailed description of how this join works, please continue reading. 
+The next section is a quick start and installation guide. After that we will describe the working in more detail. 
+
+# Installation and Usage
+
+## Installation
+
+Install the library using pip:
+
+```bash
+pip install inc-join
+```
+
+This will automatically install PySpark as a dependency (requires PySpark >= 3.0.0).
+
+## Quick Start Example
+
+Here's a simple example demonstrating how to use the incremental join function:
+
+```python
+from pyspark.sql import SparkSession
+from datetime import date
+from inc_join import inc_join, IncJoinSettings
+
+# Initialize Spark session
+spark = SparkSession.builder \
+    .appName("IncrementalJoinExample") \
+    .getOrCreate()
+
+# Create example DataFrames
+# df_a: Financial transactions with RecDate (record date)
+df_a = spark.createDataFrame([
+    (1, "Credit", 100.0, date(2025, 3, 6)),
+    (2, "Debit", 50.0, date(2025, 3, 7)),
+], ["TrxId", "Type", "Amount", "RecDate"])
+
+# df_b: Payment engine data with RecDate
+df_b = spark.createDataFrame([
+    (1, "NL", date(2025, 3, 5)),  # Arrived 1 day before df_a
+    (2, "NL", date(2025, 3, 11)),  # Arrived 4 days after df_a
+], ["TrxId", "Country", "RecDate"])
+
+# Perform incremental join
+result = inc_join(
+    df_a=df_a,
+    df_b=df_b,
+    how="left"                      # Left join (keeps all records from df_a)
+    join_cols="TrxId",              # Join on transaction ID
+    look_back_time=2,               # Look back 2 days for late arrivals
+    max_waiting_time=5,             # Wait up to 5 days for late arrivals
+    output_window_start_dt=date(2025, 3, 6),
+    output_window_end_dt=date(2025, 3, 6),
+)
+
+# Show results
+result.show()
+
+# Stop Spark session
+spark.stop()
+```
+
+### Example Output
+
+The result includes:
+- **TrxId**: The join key (transaction ID)
+- **RecDate**: The incremental date column
+- **DiffArrivalTime**: Difference in days between df_b.RecDate and df_a.RecDate
+- **JoinType**: The join scenario (same_time, a_late, b_late, a_timed_out)
+- All original columns from both DataFrames (prefixed with A_ or B_ if there are conflicts)
+
+### Advanced Configuration
+
+You can customize the join behavior using `IncJoinSettings`. For detailed documentation of all available settings, see the [IncJoinSettings class docstring](https://github.com/basvdberg/IncrementalJoin/blob/main/src/inc_join/inc_join.py#L17-L44):
+
+```python
+settings = IncJoinSettings(
+    inc_col_name="RecDate",         # Name of the incremental column
+    alias_a="A",                    # Alias for df_a columns
+    alias_b="B",                    # Alias for df_b columns
+    include_waiting=False,          # Include waiting records
+    enforce_sliding_join_window=True # Enforce sliding window
+)
+
+result = inc_join(
+    df_a=df_a,
+    df_b=df_b,
+    join_cols="TrxId",
+    look_back_time=2,
+    max_waiting_time=5,
+    other_settings=settings
+)
+```
 
 - [Dependencies](#dependencies)
 - [Summary](#summary)
+- [Installation and Usage](#installation-and-usage)
+  - [Installation](#installation)
+  - [Quick Start Example](#quick-start-example)
+    - [Example Output](#example-output)
+    - [Advanced Configuration](#advanced-configuration)
 - [Incremental refresh](#incremental-refresh)
 - [Incremental join](#incremental-join)
 - [Example](#example)

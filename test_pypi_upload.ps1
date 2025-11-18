@@ -38,7 +38,7 @@ Write-Host ""
 if ($LASTEXITCODE -eq 0) {
     Write-Host "`nUpload successful!" -ForegroundColor Green
     Write-Host "You can test installing with:" -ForegroundColor Cyan
-    Write-Host "pip install -i https://test.pypi.org/simple/ incremental-join" -ForegroundColor White
+    Write-Host "pip install -i https://test.pypi.org/simple/ inc-join" -ForegroundColor White
 } else {
     Write-Host "`nUpload failed!" -ForegroundColor Red
     exit 1

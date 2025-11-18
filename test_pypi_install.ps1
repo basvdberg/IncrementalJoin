@@ -8,12 +8,12 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-Write-Host "Installing incremental-join from TestPyPI..." -ForegroundColor Cyan
+Write-Host "Installing inc-join from TestPyPI..." -ForegroundColor Cyan
 Write-Host "This will install the package from TestPyPI to verify it works correctly." -ForegroundColor Yellow
 Write-Host ""
 
 # Install from TestPyPI (with fallback to regular PyPI for dependencies)
-& $PythonExe -m pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ incremental-join
+& $PythonExe -m pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ inc-join
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "`nInstallation successful!" -ForegroundColor Green

@@ -3,8 +3,7 @@ from decimal import Decimal
 
 from pyspark.sql import Row, SparkSession
 
-from src import inc_join
-from src.inc_join import IncJoinSettings
+from inc_join import IncJoinSettings, inc_join
 from tests.test_utils import assert_sparkframes_equal
 
 
