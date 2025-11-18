@@ -59,10 +59,10 @@ After loading the data, we want to join the two datasets. This join can become q
 
 **Requirements of incremental join function:**
 - Performance: Filter A and B into the smallest subsets possible before joining. 
-- Consistency: The outcome of the join is not dependent on the size of the join interval (e.g. daily, monthly, yearly). This is often a requirement when using the data for machine learning and you don't want to be troubled by changing historic data.  
+- Consistency: The outcome of the join is not dependent on the size of the join interval (e.g. daily, monthly, yearly). This is often a requirement when using the data for machine learning and you don't want to be troubled by changing historic data. Note that we made this requirement optional by using the enforce_sliding_join_window parameter (which is true by default). 
 
 Moving the join logic to a dedicated function implements the following requirements:
-- Efficiency: Users do not have to worry about the complexity of incremental join. 
+- Efficiency: Users do not have to worry about the complexity of incremental join. Secondly by using this function you know that every incremental join works identical.  
 - Maintainability: The complexity of incremental join is removed from your code and thus it makes your code more readable and easier to maintain.  
 - Code quality: Prevent user mistakes in the complex joining conditions of incremental join by externalizing and parameterizing this code. 
 
@@ -86,7 +86,8 @@ Let's introduce some example data:
 | 2025-03-06 08:00:00 | Credit      | 1500.0000000 | Mr. X          | 5     | 2025-03-07 |
 | 2025-03-07 14:45:00 | Debit       | 300.2500000  | Mr. X          | 6     | 2025-03-07 |
 | 2025-03-10 09:00:00 | Credit      | 99.9900000   | Mr. X          | 7     | 2025-03-08 |
-<sub>1. <a name="fn1"></a>RecDate represents the moment at which the record was stored in this dataset. For simplicity we use dates instead of timestamps</sub>
+
+<sub>1. <a name="fn1"></a>RecDate represents the moment at which the record was stored(recorded) in this dataset. For simplicity we use dates instead of timestamps</sub>
 
 ## B
 | TrxId | CountryCode | RecDate |
@@ -239,4 +240,4 @@ We cannot extend the filter that is based on output window to the future, becaus
 # Improvements
 
 1. Support for datetime time windows.   
-We decided to limit the first implementation to full dates, because this was sufficient for our use cases, but we could extend this to datetimes in order to support datasets that are refreshed multiple times per day. 
+We decided to limit the first implementation to full dates, because this was sufficient for our use cases, but we could extend this to datetime in order to support datasets that are refreshed multiple times per day. 
